@@ -4,6 +4,8 @@
 
 在 DeepSeek Harness Web 界面中直接**删除会话**的插件。设置页新增独立的「会话管理」分栏，列出所有会话并彻底删除（日志与记录一并清除），不修改 DSH 核心代码。
 
+<sub><span style="opacity:.6">本项目由 dsh + Deepseek-V4-Flash0813 独立完成</span></sub>
+
 ## 功能
 
 - 设置页新增独立的「会话管理」分栏（与 Notifications 同级的设置分区）
