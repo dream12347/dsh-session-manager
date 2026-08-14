@@ -4,7 +4,7 @@ English | [中文](README.md)
 
 Delete DSH conversation sessions directly from the DeepSeek Harness web UI. Adds a dedicated **Session Manager** section in Settings that lists every session and permanently removes the ones you pick (logs and records included) — no harness changes.
 
-<sub><span style="opacity:.6">Built independently with dsh + Deepseek-V4-Flash0813</span></sub>
+<sub><span style="opacity:.6">Built independently with dsh + Deepseek-V4-Flash0731</span></sub>
 
 ## Features
 
