@@ -1,0 +1,73 @@
+{
+  "name": "dsh-delete-session",
+  "version": "0.1.0",
+  "description": "Delete DSH conversation sessions from a Settings panel. A host delete API plus a web client panel; no harness changes.",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "check": "pnpm typecheck && pnpm test && pnpm build"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/cordis",
+    "@deepseek-ai/dsh-client-connection": "link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-connection",
+    "@deepseek-ai/dsh-client-locale": "link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-locale",
+    "@deepseek-ai/dsh-client-runtime": "link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-runtime",
+    "@deepseek-ai/dsh-client-ui-primitives": "link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-ui-primitives",
+    "@deepseek-ai/dsh-client-ui-settings": "link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-ui-settings",
+    "@deepseek-ai/dsh-client-ui-slots": "link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-ui-slots",
+    "@deepseek-ai/dsh-host-webserver": "link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-host-webserver",
+    "@deepseek-ai/dsh-session": "link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-session",
+    "@deepseek-ai/dsh-session-persistence": "link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-session-persistence",
+    "@deepseek-ai/dsh-workspace": "link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-workspace",
+    "@types/node": "^24.0.0",
+    "@types/react": "~18.3.1",
+    "react": "^18.2.0",
+    "tsdown": "^0.22.2",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "packageManager": "pnpm@11.21.0",
+  "license": "MIT"
+}

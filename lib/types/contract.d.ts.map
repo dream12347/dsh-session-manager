@@ -1,0 +1,1 @@
+{"version":3,"file":"contract.d.ts","sourceRoot":"","sources":["../../src/contract.ts"],"names":[],"mappings":"AAAA;;;;GAIG;AAEH,mEAAmE;AACnE,eAAO,MAAM,YAAY,+BAA+B,CAAA;AAExD,oDAAoD;AACpD,MAAM,WAAW,oBAAoB;IACnC,SAAS,EAAE,MAAM,CAAA;CAClB;AAED,qDAAqD;AACrD,MAAM,WAAW,qBAAqB;IACpC,EAAE,EAAE,OAAO,CAAA;IACX,4KAA4K;IAC5K,KAAK,CAAC,EAAE,MAAM,CAAA;CACf"}
