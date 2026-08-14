@@ -1,5 +1,7 @@
 # dsh-delete-session
 
+[English](README.en.md) | 中文
+
 在 DeepSeek Harness Web 界面中直接**删除会话**的插件。设置页新增独立的「会话管理」分栏，列出所有会话并彻底删除（日志与记录一并清除），不修改 DSH 核心代码。
 
 ## 功能
@@ -13,7 +15,7 @@
 
 ## 安装
 
-### 从 GitHub（推荐，发布后）
+### 从 GitHub
 
 ```sh
 dsh plugin --profile web add 'github:dream12347/dsh-delete-session#v0.1.0'
