@@ -1,6 +1,6 @@
 {
   "name": "dsh-delete-session",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Delete DSH conversation sessions from a Settings panel. A host delete API plus a web client panel; no harness changes.",
   "type": "module",
   "main": "lib/index.js",
@@ -21,6 +21,7 @@
     "cordis.patch.yml",
     "README.md",
     "README.en.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {

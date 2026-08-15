@@ -20,7 +20,7 @@ Delete DSH conversation sessions directly from the DeepSeek Harness web UI. Adds
 ### From GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-delete-session#v0.1.0'
+dsh plugin --profile web add 'github:dream12347/dsh-delete-session#v0.1.1'
 ```
 
 ### From a local directory

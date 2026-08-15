@@ -20,7 +20,7 @@
 ### 从 GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-delete-session#v0.1.0'
+dsh plugin --profile web add 'github:dream12347/dsh-delete-session#v0.1.1'
 ```
 
 ### 从本地目录
