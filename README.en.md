@@ -45,10 +45,21 @@ After installing, **restart** `dsh web` (the host plugin and the served client b
 
 ## Usage
 
+### Settings section
+
 1. Open **Settings** (the gear icon at the bottom of the sidebar)
-2. A dedicated **Session Manager** section appears in the left navigation — click it
-3. The main list shows unarchived sessions; the **Archived sessions** collapsible area at the bottom shows archived ones, also deletable
-4. Click **Delete** and confirm — the session is removed immediately
+2. A dedicated **Session Manager** section appears in the settings left navigation — click it
+3. The main list shows unarchived sessions; the **Archived sessions** collapsible area at the bottom lets you view, **restore**, or delete archived sessions
+4. Deleting moves a session to the **Trash** collapsible area (keeps the most recent 10)
+5. In the trash you can **Restore** (back to the list) or **Delete permanently** (irreversible)
+6. Per-row actions: **Continue session** (open and enter), **Pause** (stop the running turn), **Stats** (expand recent activity), **Folder** (reveal the log directory), **Delete**
+
+### Conversation header shortcuts
+
+Top right of any conversation (left of Session log):
+- **Session Manager**: opens the management drawer (full list + archived + trash); pin it to keep open, outside-click closes it
+- **Trash**: opens the drawer with the trash expanded
+- **Delete this session** (red): deletes the current conversation (moves it to the trash)
 
 ## How it works
 
