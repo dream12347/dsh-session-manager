@@ -14,7 +14,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: brings the ctx.locale Context merge into this program.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { Button, IconTrashOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { createElement, useCallback, useState, type ReactElement } from 'react'
+import { createElement, useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import { DELETE_ROUTE, type DeleteSessionResponse } from '../contract.ts'
 
 export const name = 'dsh-delete-session/client'
@@ -195,7 +195,7 @@ function stringsOf() {
   return isZh()
     ? {
         title: '会话管理',
-        count: (used: number, total: number) => `${used} / ${total} 个会话`,
+        count: (used: number) => `${used} 个会话`,
         current: '当前会话',
         delete: '删除',
         deleting: '删除中…',
@@ -215,7 +215,7 @@ function stringsOf() {
       }
     : {
         title: 'Session Manager',
-        count: (used: number, total: number) => `${used} / ${total} sessions`,
+        count: (used: number) => `${used} sessions`,
         current: 'current session',
         delete: 'Delete',
         deleting: 'Deleting…',
@@ -242,7 +242,16 @@ function SessionManager({ useSessions, useWorkspaces }: SessionManagerProps): Re
   const [archivedOpen, setArchivedOpen] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
+  const noticeTimer = useRef<number | undefined>(undefined)
   const strings = stringsOf()
+
+  // Notices auto-dismiss after a few seconds instead of lingering.
+  const showNotice = useCallback((next: Notice): void => {
+    setNotice(next)
+    window.clearTimeout(noticeTimer.current)
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 3500)
+  }, [])
+  useEffect(() => () => window.clearTimeout(noticeTimer.current), [])
 
   const archivedSet = new Set(workspaces.archivedSessionIds)
   const summaries: SessionSummary[] = list.ids
@@ -273,16 +282,16 @@ function SessionManager({ useSessions, useWorkspaces }: SessionManagerProps): Re
       const data = (await response.json().catch(() => ({}))) as DeleteSessionResponse
       if (!response.ok || data.ok !== true) throw new Error(data.error ?? `HTTP ${response.status}`)
       markRemoved(sessionId)
-      setNotice({ kind: 'ok', text: strings.deleted.replace('{title}', title) })
+      showNotice({ kind: 'ok', text: strings.deleted.replace('{title}', title) })
     } catch (error) {
       const code = error instanceof Error ? error.message : ''
       const friendly = code === 'session-live' ? strings.liveError : code === 'session-not-found' ? strings.notFoundError : ''
       const suffix = friendly !== '' ? friendly : code !== '' ? ` (${code})` : ''
-      setNotice({ kind: 'error', text: strings.failed.replace('{title}', title) + suffix })
+      showNotice({ kind: 'error', text: strings.failed.replace('{title}', title) + suffix })
     } finally {
       setBusyId(null)
     }
-  }, [strings, markRemoved])
+  }, [strings, markRemoved, showNotice])
 
   const renderRow = (session: SessionSummary, isArchived: boolean): ReactElement => {
     const isCurrent = !isArchived && session.id === list.current
@@ -319,7 +328,7 @@ function SessionManager({ useSessions, useWorkspaces }: SessionManagerProps): Re
   return createElement('div', { 'data-dsh-delete-session': '' },
     createElement('div', { className: 'dsh-delete-session__header' },
       createElement('span', { className: 'dsh-delete-session__title' }, strings.title),
-      createElement('span', { className: 'dsh-delete-session__count' }, strings.count(activeRows.length, list.ids.length)),
+      createElement('span', { className: 'dsh-delete-session__count' }, strings.count(activeRows.length)),
     ),
     notice !== null && createElement('div', {
       className: `dsh-delete-session__notice dsh-delete-session__notice--${notice.kind}`,
