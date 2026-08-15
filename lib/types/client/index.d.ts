@@ -12,7 +12,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export declare function apply(ctx: ClientContext): void;
 interface ClientContext {
     slots: SlotRegistry;
+    get<T>(service: string): T;
     effect(effect: () => void | (() => void), label?: string): void;
+    sessions: import('@deepseek-ai/dsh-client-runtime/client').ISessions;
     locale: {
         register(namespace: string, dictionaries: Record<'zh' | 'en', Record<string, string>>): () => void;
         bind(namespace: string): (key: 'nav') => string;

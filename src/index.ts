@@ -40,6 +40,7 @@ import { z } from 'zod'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync } from 'node:fs'
 import { mkdir, rename, rm } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 
 export const name = 'dsh-delete-session'
@@ -270,7 +271,20 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
         try {
           const entries = getEntries()
           const entry = entries.find((candidate) => candidate.sessionId === id)
-          if (entry === undefined) return respond(res, 404, { ok: false, error: 'trash-entry-not-found' })
+
+          // No trash entry: this is an archived-but-present session being
+          // restored from the "已归档" group. Just un-archive it.
+          if (entry === undefined) {
+            const headers = await ctx.sessionPersistence.list()
+            const meta = headers.find((header) => header.id === id)
+            const agent = ctx.agents.get(id)
+            if (meta === undefined && agent === undefined) {
+              return respond(res, 404, { ok: false, error: 'trash-entry-not-found' })
+            }
+            await unarchive(ctx, id)
+            ctx.logger.debug(`[dsh-delete-session] restore ${id}: no trash entry, un-archived only`)
+            return respond(res, 200, { ok: true })
+          }
 
           // Move the artifact back only when the trash actually holds one; a
           // live session's artifact was never moved, so nothing to do here.
@@ -340,6 +354,35 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
       },
     })
 
+    // POST /dsh-delete-session/pause — stop a running session's current turn.
+    ctx.webServer.register({
+      kind: 'exact',
+      path: `${ROUTE_PREFIX}/pause`,
+      handler: async (req, res) => {
+        if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
+        let body: unknown
+        try {
+          body = await readJsonBody(req)
+        } catch {
+          return respond(res, 400, { ok: false, error: 'bad-request' })
+        }
+        const id = parseSessionId(body)
+        if (id === undefined) return respond(res, 400, { ok: false, error: 'invalid-session-id' })
+
+        try {
+          const agent = ctx.agents.get(id)
+          if (agent === undefined) {
+            return respond(res, 404, { ok: false, error: 'agent-not-found' })
+          }
+          agent.cancel({ kind: 'user' })
+          respond(res, 200, { ok: true })
+        } catch (error) {
+          ctx.logger.warn('[dsh-delete-session] pause failed:', error)
+          respond(res, 500, { ok: false, error: 'pause-failed' })
+        }
+      },
+    })
+
     // GET /dsh-delete-session/trash — list trash entries.
     ctx.webServer.register({
       kind: 'exact',
@@ -350,6 +393,53 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
         } catch (error) {
           ctx.logger.warn('[dsh-delete-session] trash list failed:', error)
           respond(res, 500, { ok: false, error: 'trash-list-failed' })
+        }
+      },
+    })
+
+    // POST /dsh-delete-session/open-folder — reveal a session's log directory
+    // in the system file manager.
+    ctx.webServer.register({
+      kind: 'exact',
+      path: `${ROUTE_PREFIX}/open-folder`,
+      handler: async (req, res) => {
+        if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
+        let body: unknown
+        try {
+          body = await readJsonBody(req)
+        } catch {
+          return respond(res, 400, { ok: false, error: 'bad-request' })
+        }
+        const id = parseSessionId(body)
+        if (id === undefined) return respond(res, 400, { ok: false, error: 'invalid-session-id' })
+
+        try {
+          // Prefer the live artifact location; fall back to the trash entry.
+          let dir: string | undefined
+          const headers = await ctx.sessionPersistence.list()
+          const meta = headers.find((header) => header.id === id)
+          if (meta !== undefined) {
+            const location = ctx.sessionPersistence.locate(meta)
+            if (location !== undefined) dir = dirname(location.path)
+          }
+          if (dir === undefined || !existsSync(dir)) {
+            const entry = getEntries().find((candidate) => candidate.sessionId === id)
+            if (entry?.originalPath !== undefined && existsSync(entry.originalPath)) {
+              dir = entry.originalPath
+            }
+          }
+          if (dir === undefined || !existsSync(dir)) {
+            return respond(res, 404, { ok: false, error: 'folder-not-found' })
+          }
+          if (process.platform === 'win32') {
+            spawn('explorer', [dir], { detached: true, stdio: 'ignore' }).unref()
+          } else {
+            spawn('xdg-open', [dir], { detached: true, stdio: 'ignore' }).unref()
+          }
+          respond(res, 200, { ok: true })
+        } catch (error) {
+          ctx.logger.warn('[dsh-delete-session] open-folder failed:', error)
+          respond(res, 500, { ok: false, error: 'open-folder-failed' })
         }
       },
     })

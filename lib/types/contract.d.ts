@@ -11,6 +11,10 @@ export declare const RESTORE_ROUTE = "/dsh-delete-session/restore";
 export declare const PURGE_ROUTE = "/dsh-delete-session/purge";
 /** List the current trash contents. */
 export declare const TRASH_ROUTE = "/dsh-delete-session/trash";
+/** Reveal a session's log directory in the system file manager. */
+export declare const OPEN_FOLDER_ROUTE = "/dsh-delete-session/open-folder";
+/** Stop a running session's current turn (pause). */
+export declare const PAUSE_ROUTE = "/dsh-delete-session/pause";
 /** POST /dsh-delete-session/delete request body. */
 export interface DeleteSessionRequest {
     sessionId: string;

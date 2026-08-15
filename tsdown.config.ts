@@ -27,7 +27,7 @@ export default defineConfig([
     dts: false,
     clean: false,
     deps: {
-      neverBundle: ['react', '@deepseek-ai/dsh-client-ui-primitives'],
+      neverBundle: ['react', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'],
     },
     outputOptions: {
       entryFileNames: 'client.js',
