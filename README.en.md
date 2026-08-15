@@ -10,7 +10,8 @@ Delete DSH conversation sessions directly from the DeepSeek Harness web UI. Adds
 
 - A dedicated **Session Manager** section in Settings (a settings section, sibling to Notifications)
 - Lists all sessions (title / working directory); **archived sessions** are grouped in a collapsible area at the bottom — both groups can be deleted
-- Confirm-then-delete: after confirmation the session's log directory is **permanently removed**
+- **Trash**: deleted sessions move to the trash (keeps the most recent 10, the oldest is purged automatically), with **Restore** and **Delete permanently** actions
+- Confirm-then-delete for every action; operation notices auto-dismiss after 3.5s
 - The current session is marked "current session" and running ones "running" — their delete buttons are disabled to prevent accidents
 - Subagent sessions are disabled; their lifecycle belongs to DSH delegation
 - UI language follows the page language (Chinese / English)
@@ -20,7 +21,7 @@ Delete DSH conversation sessions directly from the DeepSeek Harness web UI. Adds
 ### From GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-delete-session#v0.1.1'
+dsh plugin --profile web add 'github:dream12347/dsh-delete-session#v0.1.2'
 ```
 
 ### From a local directory

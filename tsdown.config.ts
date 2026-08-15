@@ -13,6 +13,8 @@ export default defineConfig([
     fixedExtension: false,
     dts: false,
     clean: false,
+    // Runtime deps are bundled (default) so a `pnpm add github:...` install —
+    // which never installs devDependencies — resolves them from inside the plugin.
   },
   {
     name: `${PACKAGE_ID}/client`,

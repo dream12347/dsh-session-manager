@@ -9,13 +9,22 @@
  */
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionListState, SessionSummary, SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: brings the `settings.section` SlotMap declaration into this program.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: brings the ctx.locale Context merge into this program.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { Button, IconTrashOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createElement, useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
-import { DELETE_ROUTE, type DeleteSessionResponse } from '../contract.ts'
+import {
+  DELETE_ROUTE,
+  PURGE_ROUTE,
+  RESTORE_ROUTE,
+  TRASH_ROUTE,
+  type ActionResultResponse,
+  type TrashEntry,
+  type TrashListResponse,
+} from '../contract.ts'
 
 export const name = 'dsh-delete-session/client'
 export const inject = ['slots', 'locale']
@@ -134,6 +143,9 @@ const STYLE = `
 .dsh-delete-session__row[data-archived] {
   opacity: .72;
 }
+.dsh-delete-session__row[data-trash] {
+  opacity: .85;
+}
 .dsh-delete-session__list {
   list-style: none;
   margin: 0;
@@ -199,7 +211,7 @@ function stringsOf() {
         current: '当前会话',
         delete: '删除',
         deleting: '删除中…',
-        confirm: '确定删除会话「{title}」吗？日志与记录将被永久清除，无法恢复。',
+        confirm: '确定删除会话「{title}」吗？它会移入回收站，可在「回收站」中恢复或彻底删除。',
         deleted: '已删除会话「{title}」',
         failed: '删除会话「{title}」失败',
         liveError: '（会话正在使用中，请先停止后再删）',
@@ -207,11 +219,28 @@ function stringsOf() {
         running: '运行中',
         archived: '已归档',
         archivedGroup: '已归档会话',
-        archivedHint: '已归档会话删除后彻底清除；列表记录将在重启 DSH 后自动清理。',
+        archivedHint: '已归档会话删除后移入回收站；这里只是归档状态（侧边栏隐藏）。',
+        trashGroup: '回收站',
+        trashHint: '保留最近 {limit} 条已删除会话，超出后最早的一条会被自动彻底删除。',
+        trashEmpty: '回收站为空。',
+        trashLoadFailed: '回收站加载失败',
+        restore: '恢复',
+        restoreConfirm: '确定恢复会话「{title}」吗？它会回到会话列表。',
+        restored: '已恢复会话「{title}」',
+        restoreFailed: '恢复会话「{title}」失败',
+        purge: '彻底删除',
+        purgeConfirm: '确定彻底删除会话「{title}」吗？日志与记录将永久清除，无法恢复。',
+        purged: '已彻底删除会话「{title}」',
+        purgeFailed: '彻底删除会话「{title}」失败',
         expand: '展开',
         collapse: '收起',
         empty: '没有可管理的会话。',
         noCwd: '(未知工作目录)',
+        deletedAt: (ms: number) => {
+          const d = new Date(ms)
+          const pad = (n: number) => String(n).padStart(2, '0')
+          return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+        },
       }
     : {
         title: 'Session Manager',
@@ -219,7 +248,7 @@ function stringsOf() {
         current: 'current session',
         delete: 'Delete',
         deleting: 'Deleting…',
-        confirm: 'Delete session "{title}"? Its logs and records will be permanently removed. This cannot be undone.',
+        confirm: 'Delete session "{title}"? It moves to the trash, where you can restore or permanently delete it.',
         deleted: 'Deleted session "{title}"',
         failed: 'Failed to delete session "{title}"',
         liveError: ' (session is in use; stop it before deleting)',
@@ -227,11 +256,28 @@ function stringsOf() {
         running: 'running',
         archived: 'archived',
         archivedGroup: 'Archived sessions',
-        archivedHint: 'Deleting an archived session removes it permanently; leftover records are cleaned up on the next DSH restart.',
+        archivedHint: 'Deleting an archived session moves it to the trash; this list is just the archived (sidebar-hidden) state.',
+        trashGroup: 'Trash',
+        trashHint: 'Keeps the most recent {limit} deleted sessions; the oldest one is purged automatically when the limit is exceeded.',
+        trashEmpty: 'The trash is empty.',
+        trashLoadFailed: 'Failed to load the trash',
+        restore: 'Restore',
+        restoreConfirm: 'Restore session "{title}"? It will return to the session list.',
+        restored: 'Restored session "{title}"',
+        restoreFailed: 'Failed to restore session "{title}"',
+        purge: 'Delete permanently',
+        purgeConfirm: 'Permanently delete session "{title}"? Its logs and records cannot be recovered.',
+        purged: 'Permanently deleted session "{title}"',
+        purgeFailed: 'Failed to permanently delete session "{title}"',
         expand: 'Expand',
         collapse: 'Collapse',
         empty: 'No manageable sessions.',
         noCwd: '(unknown working directory)',
+        deletedAt: (ms: number) => {
+          const d = new Date(ms)
+          const pad = (n: number) => String(n).padStart(2, '0')
+          return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+        },
       }
 }
 
@@ -240,6 +286,10 @@ function SessionManager({ useSessions, useWorkspaces }: SessionManagerProps): Re
   const workspaces = useWorkspaces((state) => state)
   const [removed, setRemoved] = useState<ReadonlySet<string>>(() => loadRemoved())
   const [archivedOpen, setArchivedOpen] = useState(false)
+  const [trashOpen, setTrashOpen] = useState(false)
+  const [trash, setTrash] = useState<TrashEntry[] | null>(null)
+  const [trashLimit, setTrashLimit] = useState(10)
+  const [trashFailed, setTrashFailed] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const noticeTimer = useRef<number | undefined>(undefined)
@@ -253,12 +303,32 @@ function SessionManager({ useSessions, useWorkspaces }: SessionManagerProps): Re
   }, [])
   useEffect(() => () => window.clearTimeout(noticeTimer.current), [])
 
+  const loadTrash = useCallback(async (): Promise<void> => {
+    try {
+      const response = await fetch(TRASH_ROUTE)
+      const data = (await response.json().catch(() => ({}))) as TrashListResponse
+      if (response.ok && data.ok) {
+        setTrash(data.entries)
+        setTrashLimit(data.limit)
+        setTrashFailed(false)
+      } else {
+        setTrashFailed(true)
+      }
+    } catch {
+      setTrashFailed(true)
+    }
+  }, [])
+  useEffect(() => {
+    void loadTrash()
+  }, [loadTrash])
+
   const archivedSet = new Set(workspaces.archivedSessionIds)
+  const trashIds = new Set((trash ?? []).map((entry) => entry.sessionId))
   const summaries: SessionSummary[] = list.ids
     .map((id) => list.byId[id])
     .filter((session): session is SessionSummary => session !== undefined && !removed.has(session.id))
   const activeRows = summaries.filter((session) => !archivedSet.has(session.id))
-  const archivedRows = summaries.filter((session) => archivedSet.has(session.id))
+  const archivedRows = summaries.filter((session) => archivedSet.has(session.id) && !trashIds.has(session.id))
 
   const markRemoved = useCallback((sessionId: string): void => {
     setRemoved((previous) => {
@@ -279,9 +349,9 @@ function SessionManager({ useSessions, useWorkspaces }: SessionManagerProps): Re
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ sessionId }),
       })
-      const data = (await response.json().catch(() => ({}))) as DeleteSessionResponse
+      const data = (await response.json().catch(() => ({}))) as ActionResultResponse
       if (!response.ok || data.ok !== true) throw new Error(data.error ?? `HTTP ${response.status}`)
-      markRemoved(sessionId)
+      await loadTrash()
       showNotice({ kind: 'ok', text: strings.deleted.replace('{title}', title) })
     } catch (error) {
       const code = error instanceof Error ? error.message : ''
@@ -291,7 +361,54 @@ function SessionManager({ useSessions, useWorkspaces }: SessionManagerProps): Re
     } finally {
       setBusyId(null)
     }
-  }, [strings, markRemoved, showNotice])
+  }, [strings, loadTrash, showNotice])
+
+  const handleRestore = useCallback(async (sessionId: string, title: string): Promise<void> => {
+    if (!window.confirm(strings.restoreConfirm.replace('{title}', title))) return
+    setBusyId(sessionId)
+    setNotice(null)
+    try {
+      const response = await fetch(RESTORE_ROUTE, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      })
+      const data = (await response.json().catch(() => ({}))) as ActionResultResponse
+      if (!response.ok || data.ok !== true) throw new Error(data.error ?? `HTTP ${response.status}`)
+      await loadTrash()
+      showNotice({ kind: 'ok', text: strings.restored.replace('{title}', title) })
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      const suffix = code !== '' ? ` (${code})` : ''
+      showNotice({ kind: 'error', text: strings.restoreFailed.replace('{title}', title) + suffix })
+    } finally {
+      setBusyId(null)
+    }
+  }, [strings, loadTrash, showNotice])
+
+  const handlePurge = useCallback(async (sessionId: string, title: string): Promise<void> => {
+    if (!window.confirm(strings.purgeConfirm.replace('{title}', title))) return
+    setBusyId(sessionId)
+    setNotice(null)
+    try {
+      const response = await fetch(PURGE_ROUTE, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      })
+      const data = (await response.json().catch(() => ({}))) as ActionResultResponse
+      if (!response.ok || data.ok !== true) throw new Error(data.error ?? `HTTP ${response.status}`)
+      markRemoved(sessionId)
+      await loadTrash()
+      showNotice({ kind: 'ok', text: strings.purged.replace('{title}', title) })
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      const suffix = code !== '' ? ` (${code})` : ''
+      showNotice({ kind: 'error', text: strings.purgeFailed.replace('{title}', title) + suffix })
+    } finally {
+      setBusyId(null)
+    }
+  }, [strings, loadTrash, markRemoved, showNotice])
 
   const renderRow = (session: SessionSummary, isArchived: boolean): ReactElement => {
     const isCurrent = !isArchived && session.id === list.current
@@ -321,6 +438,38 @@ function SessionManager({ useSessions, useWorkspaces }: SessionManagerProps): Re
         title: protectedReason !== '' && !isCurrent ? protectedReason : strings.delete,
         onClick: () => void handleDelete(session.id, session.displayTitle),
         children: busy ? strings.deleting : strings.delete,
+      }),
+    )
+  }
+
+  const renderTrashRow = (entry: TrashEntry): ReactElement => {
+    const title = list.byId[entry.sessionId as SessionId]?.displayTitle ?? entry.sessionId
+    const busy = busyId === entry.sessionId
+    return createElement('li', {
+      key: entry.sessionId,
+      className: 'dsh-delete-session__row',
+      'data-trash': true,
+    },
+      createElement('div', { className: 'dsh-delete-session__row-main' },
+        createElement('div', { className: 'dsh-delete-session__row-title' }, title),
+        createElement('div', { className: 'dsh-delete-session__row-meta' },
+          [entry.cwd ?? strings.noCwd, strings.deletedAt(entry.deletedAt)].join(' · '),
+        ),
+      ),
+      createElement(Button, {
+        variant: 'ghost',
+        size: 'sm',
+        disabled: busy,
+        onClick: () => void handleRestore(entry.sessionId, title),
+        children: strings.restore,
+      }),
+      createElement(Button, {
+        variant: 'outline',
+        size: 'sm',
+        icon: createElement(IconTrashOutline16, { size: 16 }),
+        disabled: busy,
+        onClick: () => void handlePurge(entry.sessionId, title),
+        children: strings.purge,
       }),
     )
   }
@@ -356,6 +505,31 @@ function SessionManager({ useSessions, useWorkspaces }: SessionManagerProps): Re
         ...archivedRows.map((session) => renderRow(session, true)),
       ),
       createElement('div', { className: 'dsh-delete-session__group-hint' }, strings.archivedHint),
+    ),
+    trash !== null && createElement('div', { className: 'dsh-delete-session__group' },
+      createElement('button', {
+        type: 'button',
+        className: 'dsh-delete-session__group-toggle',
+        onClick: () => setTrashOpen((open) => !open),
+        'aria-expanded': trashOpen || undefined,
+      },
+        createElement('span', { className: 'dsh-delete-session__group-toggle-label' },
+          `${strings.trashGroup} (${trash.length}/${trashLimit})`,
+        ),
+        createElement('span', { className: 'dsh-delete-session__group-toggle-chevron' },
+          trashOpen ? strings.collapse : strings.expand,
+        ),
+      ),
+      trashFailed
+        ? createElement('div', { className: 'dsh-delete-session__group-hint' }, strings.trashLoadFailed)
+        : trashOpen && (trash.length === 0
+            ? createElement('div', { className: 'dsh-delete-session__empty' }, strings.trashEmpty)
+            : createElement('ul', { className: 'dsh-delete-session__list' },
+                ...trash.map((entry) => renderTrashRow(entry)),
+              )),
+      createElement('div', { className: 'dsh-delete-session__group-hint' },
+        strings.trashHint.replace('{limit}', String(trashLimit)),
+      ),
     ),
   )
 }
