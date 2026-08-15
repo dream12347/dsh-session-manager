@@ -17,7 +17,7 @@ Full session management for the DeepSeek Harness web UI: delete sessions (with a
 - **Delete this session**: a red button in the conversation header (left of Session log) to delete the current session
 - **Session Manager / Trash** header buttons: a self-drawn right drawer (pin to keep open, outside-click to close)
 - Delete restriction: only sessions **currently thinking** are protected; an open-but-idle session can be deleted
-- Subagent sessions are disabled; their lifecycle belongs to DSH delegation
+- Subagent functionality is unaffected: their sessions are managed by DSH delegation, and this plugin does not offer a delete entry for them (end/clean them up within their parent session)
 - UI language follows the page language (Chinese / English)
 
 ## Install
