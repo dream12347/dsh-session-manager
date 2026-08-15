@@ -20,6 +20,20 @@ Possibly the most feature-complete DSH session manager plugin out there: full se
 - Subagent functionality is unaffected: their sessions are managed by DSH delegation, and this plugin does not offer a delete entry for them (end/clean them up within their parent session)
 - UI language follows the page language (Chinese / English)
 
+## Screenshots
+
+The Settings "Session Manager" section (with archived group and trash):
+
+![Session Manager settings section](assets/settings-section.png)
+
+Conversation header shortcuts (Session Manager / Trash / Delete this session):
+
+![Conversation header shortcuts](assets/header-buttons.png)
+
+The session management drawer (pin to keep open, outside-click to close):
+
+![Session management drawer](assets/session-drawer.png)
+
 ## Install
 
 ### From GitHub
