@@ -1,11 +1,11 @@
 /**
- * dsh-delete-session host plugin (v0.1.2: trash + restore).
+ * dsh-session-manager host plugin (v0.1.2: trash + restore).
  *
  * Routes:
- *   POST /dsh-delete-session/delete   body: { sessionId }  -> move to trash
- *   POST /dsh-delete-session/restore  body: { sessionId }  -> restore from trash
- *   POST /dsh-delete-session/purge    body: { sessionId }  -> permanently purge
- *   GET  /dsh-delete-session/trash                          -> list trash entries
+ *   POST /dsh-session-manager/delete   body: { sessionId }  -> move to trash
+ *   POST /dsh-session-manager/restore  body: { sessionId }  -> restore from trash
+ *   POST /dsh-session-manager/purge    body: { sessionId }  -> permanently purge
+ *   GET  /dsh-session-manager/trash                          -> list trash entries
  *
  * Delete flow (soft delete):
  *  1. Resolve the persisted session; refuse subagent-owned sessions and
@@ -48,7 +48,7 @@ import { dirname, join } from 'node:path'
 export const name = 'dsh-session-manager'
 export const inject = ['webServer', 'sessionPersistence', 'workspaceRegistry', 'agents', 'storageDomain', 'loader']
 
-const ROUTE_PREFIX = '/dsh-delete-session'
+const ROUTE_PREFIX = '/dsh-session-manager'
 const MAX_BODY_BYTES = 64 * 1024
 const SESSION_ID_RE = /^session-[0-9a-fA-F-]{8,}$/
 /** Maximum trash entries kept; the oldest overflow is purged automatically. */
@@ -278,7 +278,7 @@ async function applyThresholdToLiveAgents(ctx: Context, ratio: number): Promise<
       engine.config.thresholdRatio = ratio
     }
   } catch (error) {
-    ctx.logger.warn('[dsh-delete-session] live-agent threshold update failed:', error)
+    ctx.logger.warn('[dsh-session-manager] live-agent threshold update failed:', error)
   }
 }
 
@@ -287,11 +287,11 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
     const getEntries = (): TrashEntry[] => (trash.global.get() as { entries: TrashEntry[] }).entries
     const setEntries = (entries: TrashEntry[]): Promise<void> =>
       trash.global.set({ entries }).catch((error) => {
-        ctx.logger.warn('[dsh-delete-session] trash persist failed:', error)
+        ctx.logger.warn('[dsh-session-manager] trash persist failed:', error)
         throw error
       })
 
-    // POST /dsh-delete-session/delete — soft delete into the trash.
+    // POST /dsh-session-manager/delete — soft delete into the trash.
     ctx.webServer.register({
       kind: 'exact',
       path: `${ROUTE_PREFIX}/delete`,
@@ -327,7 +327,7 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
           try {
             await ctx.workspaceRegistry.archiveSession(id)
           } catch (error) {
-            ctx.logger.warn(`[dsh-delete-session] archive failed for ${id}, aborting delete:`, error)
+            ctx.logger.warn(`[dsh-session-manager] archive failed for ${id}, aborting delete:`, error)
             return respond(res, 500, { ok: false, error: 'archive-failed' })
           }
           // archiveSession idempotently skips when its private cache already
@@ -342,7 +342,7 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
                 const next = { ...current, archivedSessionIds: [...current.archivedSessionIds, id] }
                 await workspace.global.set(next)
                 syncRegistryState(ctx, next)
-                ctx.logger.debug(`[dsh-delete-session] patched archived set for ${id} (stale registry cache)`)
+                ctx.logger.debug(`[dsh-session-manager] patched archived set for ${id} (stale registry cache)`)
               }
             }
           }
@@ -361,7 +361,7 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
             await mkdir(trashRoot(), { recursive: true })
             await rm(trashSessionDir(id), { recursive: true, force: true })
             await rename(originalPath, trashSessionDir(id))
-            ctx.logger.debug(`[dsh-delete-session] moved ${id} artifact to trash`)
+            ctx.logger.debug(`[dsh-session-manager] moved ${id} artifact to trash`)
           }
 
           // Record the entry idempotently: an existing entry for this session
@@ -385,13 +385,13 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
 
           respond(res, 200, { ok: true })
         } catch (error) {
-          ctx.logger.warn('[dsh-delete-session] delete failed:', error)
+          ctx.logger.warn('[dsh-session-manager] delete failed:', error)
           respond(res, 500, { ok: false, error: 'delete-failed' })
         }
       },
     })
 
-    // POST /dsh-delete-session/restore — move the artifact back and unarchive.
+    // POST /dsh-session-manager/restore — move the artifact back and unarchive.
     ctx.webServer.register({
       kind: 'exact',
       path: `${ROUTE_PREFIX}/restore`,
@@ -420,7 +420,7 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
               return respond(res, 404, { ok: false, error: 'trash-entry-not-found' })
             }
             await unarchive(ctx, id)
-            ctx.logger.debug(`[dsh-delete-session] restore ${id}: no trash entry, un-archived only`)
+            ctx.logger.debug(`[dsh-session-manager] restore ${id}: no trash entry, un-archived only`)
             return respond(res, 200, { ok: true })
           }
 
@@ -429,21 +429,21 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
           const from = trashSessionDir(id)
           if (existsSync(from)) {
             if (entry.originalPath === undefined) {
-              ctx.logger.warn(`[dsh-delete-session] restore ${id}: artifact exists in trash but entry has no original path`)
+              ctx.logger.warn(`[dsh-session-manager] restore ${id}: artifact exists in trash but entry has no original path`)
               return respond(res, 500, { ok: false, error: 'no-original-path' })
             }
             if (existsSync(entry.originalPath)) {
               // The original location was recreated (a live session kept
               // writing there): keep the newer file, discard the trash copy.
               await rm(from, { recursive: true, force: true })
-              ctx.logger.warn(`[dsh-delete-session] restore ${id}: original path already exists, discarding trash copy`)
+              ctx.logger.warn(`[dsh-session-manager] restore ${id}: original path already exists, discarding trash copy`)
             } else {
               await mkdir(dirname(entry.originalPath), { recursive: true })
               await rename(from, entry.originalPath)
-              ctx.logger.debug(`[dsh-delete-session] restored ${id} artifact from trash`)
+              ctx.logger.debug(`[dsh-session-manager] restored ${id} artifact from trash`)
             }
           } else {
-            ctx.logger.debug(`[dsh-delete-session] restore ${id}: no artifact in trash (live or blank session)`)
+            ctx.logger.debug(`[dsh-session-manager] restore ${id}: no artifact in trash (live or blank session)`)
           }
 
           // Only now — artifact safely back — un-archive and drop the entry.
@@ -451,13 +451,13 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
           await setEntries(entries.filter((candidate) => candidate.sessionId !== id))
           respond(res, 200, { ok: true })
         } catch (error) {
-          ctx.logger.warn('[dsh-delete-session] restore failed:', error)
+          ctx.logger.warn('[dsh-session-manager] restore failed:', error)
           respond(res, 500, { ok: false, error: 'restore-failed' })
         }
       },
     })
 
-    // POST /dsh-delete-session/purge — permanently delete the trash entry.
+    // POST /dsh-session-manager/purge — permanently delete the trash entry.
     ctx.webServer.register({
       kind: 'exact',
       path: `${ROUTE_PREFIX}/purge`,
@@ -486,13 +486,13 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
           await setEntries(entries.filter((candidate) => candidate.sessionId !== id))
           respond(res, 200, { ok: true })
         } catch (error) {
-          ctx.logger.warn('[dsh-delete-session] purge failed:', error)
+          ctx.logger.warn('[dsh-session-manager] purge failed:', error)
           respond(res, 500, { ok: false, error: 'purge-failed' })
         }
       },
     })
 
-    // POST /dsh-delete-session/pause — stop a running session's current turn.
+    // POST /dsh-session-manager/pause — stop a running session's current turn.
     ctx.webServer.register({
       kind: 'exact',
       path: `${ROUTE_PREFIX}/pause`,
@@ -515,13 +515,13 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
           agent.cancel({ kind: 'user' })
           respond(res, 200, { ok: true })
         } catch (error) {
-          ctx.logger.warn('[dsh-delete-session] pause failed:', error)
+          ctx.logger.warn('[dsh-session-manager] pause failed:', error)
           respond(res, 500, { ok: false, error: 'pause-failed' })
         }
       },
     })
 
-    // GET /dsh-delete-session/trash — list trash entries.
+    // GET /dsh-session-manager/trash — list trash entries.
     ctx.webServer.register({
       kind: 'exact',
       path: `${ROUTE_PREFIX}/trash`,
@@ -529,13 +529,13 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
         try {
           respond(res, 200, { ok: true, entries: getEntries(), limit: TRASH_LIMIT })
         } catch (error) {
-          ctx.logger.warn('[dsh-delete-session] trash list failed:', error)
+          ctx.logger.warn('[dsh-session-manager] trash list failed:', error)
           respond(res, 500, { ok: false, error: 'trash-list-failed' })
         }
       },
     })
 
-    // GET/POST /dsh-delete-session/compaction-threshold — read or update the
+    // GET/POST /dsh-session-manager/compaction-threshold — read or update the
     // compaction threshold in the default agent preset's composition file.
     // Web mode disables the root compaction entry; the live engine runs in
     // the preset's isolated realm, so this is where the value takes effect
@@ -551,7 +551,7 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
             const ratio = parsePresetRatio(content) ?? 0.8
             respond(res, 200, { ok: true, ratio })
           } catch (error) {
-            ctx.logger.warn('[dsh-delete-session] compaction-threshold read failed:', error)
+            ctx.logger.warn('[dsh-session-manager] compaction-threshold read failed:', error)
             respond(res, 500, { ok: false, error: 'compaction-threshold-read-failed' })
           }
           return
@@ -577,13 +577,13 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
           respond(res, 200, { ok: true })
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
-          ctx.logger.warn('[dsh-delete-session] compaction-threshold update failed:', error)
+          ctx.logger.warn('[dsh-session-manager] compaction-threshold update failed:', error)
           respond(res, 500, { ok: false, error: message })
         }
       },
     })
 
-    // POST /dsh-delete-session/open-folder — reveal a session's log directory
+    // POST /dsh-session-manager/open-folder — reveal a session's log directory
     // in the system file manager.
     ctx.webServer.register({
       kind: 'exact',
@@ -624,7 +624,7 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
           }
           respond(res, 200, { ok: true })
         } catch (error) {
-          ctx.logger.warn('[dsh-delete-session] open-folder failed:', error)
+          ctx.logger.warn('[dsh-session-manager] open-folder failed:', error)
           respond(res, 500, { ok: false, error: 'open-folder-failed' })
         }
       },

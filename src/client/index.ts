@@ -1,5 +1,5 @@
 /**
- * dsh-delete-session web client.
+ * dsh-session-manager web client.
  *
  * Registers a dedicated Settings section ("会话管理" / Session Manager) via
  * the official `settings.section` slot. The panel lists every session from

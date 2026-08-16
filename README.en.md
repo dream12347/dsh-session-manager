@@ -94,7 +94,7 @@ Top right of any conversation (left of Session log):
 
 | Layer | Implementation |
 |---|---|
-| Host | `src/index.ts` registers the webserver route `POST /dsh-delete-session/delete`. It resolves the session via `ctx.sessionPersistence`, archives it first through `ctx.workspaceRegistry` (the official channel hides the row on every connected client immediately), then removes the log directory on disk; `ctx.agents` detects running sessions and refuses to delete them |
+| Host | `src/index.ts` registers the webserver route `POST /dsh-session-manager/delete`. It resolves the session via `ctx.sessionPersistence`, archives it first through `ctx.workspaceRegistry` (the official channel hides the row on every connected client immediately), then removes the log directory on disk; `ctx.agents` detects running sessions and refuses to delete them |
 | Client | `src/client/index.ts` registers the dedicated section through the official `settings.section` slot, lists sessions (with the archived group) from the `useSessions` / `useWorkspaces` standard feeds, and calls the host route to delete; removed session ids are remembered in browser localStorage so a live session does not "resurrect" after refresh |
 
 - Deletion goes through the official archive channel first: the sidebar hides the session immediately

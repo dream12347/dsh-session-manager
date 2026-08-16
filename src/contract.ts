@@ -5,26 +5,26 @@
  */
 
 /** The host route the client panel calls to delete (move to trash) one session. */
-export const DELETE_ROUTE = '/dsh-delete-session/delete'
+export const DELETE_ROUTE = '/dsh-session-manager/delete'
 /** Restore one session from the trash back to its original location. */
-export const RESTORE_ROUTE = '/dsh-delete-session/restore'
+export const RESTORE_ROUTE = '/dsh-session-manager/restore'
 /** Permanently purge one session from the trash. */
-export const PURGE_ROUTE = '/dsh-delete-session/purge'
+export const PURGE_ROUTE = '/dsh-session-manager/purge'
 /** List the current trash contents. */
-export const TRASH_ROUTE = '/dsh-delete-session/trash'
+export const TRASH_ROUTE = '/dsh-session-manager/trash'
 /** Reveal a session's log directory in the system file manager. */
-export const OPEN_FOLDER_ROUTE = '/dsh-delete-session/open-folder'
+export const OPEN_FOLDER_ROUTE = '/dsh-session-manager/open-folder'
 /** Stop a running session's current turn (pause). */
-export const PAUSE_ROUTE = '/dsh-delete-session/pause'
+export const PAUSE_ROUTE = '/dsh-session-manager/pause'
 /** Write the context compaction threshold into the official compaction plugin config. */
-export const COMPACTION_THRESHOLD_ROUTE = '/dsh-delete-session/compaction-threshold'
+export const COMPACTION_THRESHOLD_ROUTE = '/dsh-session-manager/compaction-threshold'
 
-/** POST /dsh-delete-session/delete request body. */
+/** POST /dsh-session-manager/delete request body. */
 export interface DeleteSessionRequest {
   sessionId: string
 }
 
-/** POST /dsh-delete-session/restore and /purge request body. */
+/** POST /dsh-session-manager/restore and /purge request body. */
 export interface TrashActionRequest {
   sessionId: string
 }
@@ -47,7 +47,7 @@ export interface ActionResultResponse {
   error?: string
 }
 
-/** GET /dsh-delete-session/trash response body. */
+/** GET /dsh-session-manager/trash response body. */
 export interface TrashListResponse {
   ok: boolean
   entries: TrashEntry[]

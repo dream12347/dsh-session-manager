@@ -1,11 +1,11 @@
 /**
- * dsh-delete-session host plugin (v0.1.2: trash + restore).
+ * dsh-session-manager host plugin (v0.1.2: trash + restore).
  *
  * Routes:
- *   POST /dsh-delete-session/delete   body: { sessionId }  -> move to trash
- *   POST /dsh-delete-session/restore  body: { sessionId }  -> restore from trash
- *   POST /dsh-delete-session/purge    body: { sessionId }  -> permanently purge
- *   GET  /dsh-delete-session/trash                          -> list trash entries
+ *   POST /dsh-session-manager/delete   body: { sessionId }  -> move to trash
+ *   POST /dsh-session-manager/restore  body: { sessionId }  -> restore from trash
+ *   POST /dsh-session-manager/purge    body: { sessionId }  -> permanently purge
+ *   GET  /dsh-session-manager/trash                          -> list trash entries
  *
  * Delete flow (soft delete):
  *  1. Resolve the persisted session; refuse subagent-owned sessions and
