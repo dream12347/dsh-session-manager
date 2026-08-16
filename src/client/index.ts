@@ -23,6 +23,7 @@ import type {} from '@deepseek-ai/dsh-session-title/client'
 // Type-only: brings the connection/remote merges and IApiClient types.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ConnectionHandle, HistoryEntry, SessionId as WireSessionId } from '@deepseek-ai/dsh-api-remotes/client'
+import type { WorkspaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { Button, IconTrashOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createElement, Fragment, useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
@@ -39,7 +40,7 @@ import {
 } from '../contract.ts'
 
 export const name = 'dsh-delete-session/client'
-export const inject = ['slots', 'locale', 'connection', 'sessions']
+export const inject = ['slots', 'locale', 'connection', 'sessions', 'workspaces']
 
 /** Locale namespace id registered under ctx.locale. */
 export const NS = 'dsh-delete-session'
@@ -132,6 +133,22 @@ const STYLE = `
   color: var(--dsw-alias-label-tertiary, #9ca3af);
   font-size: 12px;
 }
+.dsh-delete-session__sort {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--dsw-alias-label-secondary, #6b7280);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  margin-left: auto;
+  padding: 2px 8px;
+}
+.dsh-delete-session__sort:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, .1));
+  color: var(--dsw-alias-label-primary, #111827);
+}
 .dsh-delete-session__notice {
   border-radius: 8px;
   font-size: 12px;
@@ -176,6 +193,85 @@ const STYLE = `
 }
 .dsh-delete-session__group-toggle-label {
   font-weight: 600;
+}
+.dsh-delete-session__group-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--dsw-alias-label-secondary, #6b7280);
+  font-size: 12px;
+  font-weight: 650;
+  margin: 10px 0 4px;
+  padding: 0 2px;
+}
+.dsh-delete-session__group-label-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsh-delete-session__group-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.dsh-delete-session__group-label:hover .dsh-delete-session__group-actions,
+.dsh-delete-session__group-actions:focus-within {
+  opacity: 1;
+}
+.dsh-delete-session__group-action {
+  flex: none;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+  border: 1px solid var(--dsw-alias-border-default, #e5e7eb);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, #6b7280);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dsh-delete-session__group-action:hover {
+  border-color: var(--dsw-alias-state-info-border, #4d6bfe);
+  color: var(--dsw-alias-state-info-border, #4d6bfe);
+}
+.dsh-delete-session__group-action--danger,
+.dsh-delete-session__group-action--danger:hover {
+  border-color: var(--dsw-alias-state-danger-border, #ef4444);
+  color: var(--dsw-alias-state-danger-border, #ef4444);
+}
+.dsh-delete-session__group-label:first-child {
+  margin-top: 0;
+}
+.dsh-delete-session__group-label--drag {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.dsh-delete-session__group-label--drag[data-dragging] {
+  opacity: .5;
+}
+.dsh-delete-session__group-label--drag[data-drop-swap] {
+  background: var(--dsw-alias-state-info-bg, rgba(77, 107, 254, .14));
+  border-radius: 6px;
+}
+/* Thin insertion lines hugging the group edges: "after A" and "before B"
+   draw the SAME line on B's top edge. The first group has no top border. */
+.dsh-delete-session__group[data-line-top] {
+  box-shadow: 0 -2px 0 var(--dsw-alias-state-info-border, #4d6bfe);
+}
+.dsh-delete-session__group[data-line-end] {
+  box-shadow: 0 2px 0 var(--dsw-alias-state-info-border, #4d6bfe);
+}
+.dsh-delete-session__group[data-first] {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
 }
 .dsh-delete-session__group-toggle-chevron {
   color: var(--dsw-alias-label-tertiary, #9ca3af);
@@ -375,6 +471,8 @@ interface SessionManagerProps {
   api: Pick<import('@deepseek-ai/dsh-api-remotes/client').IApiClient, 'sessions'>
   /** Browser sessions service: open a session and close the settings panel. */
   sessions: import('@deepseek-ai/dsh-client-runtime/client').ISessions
+  /** Workspaces service: durable workspace reordering (drag & drop). */
+  workspaceActions: import('@deepseek-ai/dsh-client-runtime/client').IWorkspaces
   /** Close the settings panel (settings.section owner seat). */
   close: () => void
 }
@@ -500,6 +598,15 @@ function stringsOf() {
         unpin: '取消固定',
         drawerPinHint: '固定后面板保持打开，点击面板外不会自动收起。',
         close: '关闭',
+        ungrouped: '未分组',
+        sortNewest: '最新在前',
+        sortOldest: '最旧在前',
+        workspaceDragHint: '拖动调整工作区顺序',
+        workspaceToTop: '置于顶部',
+        workspaceRename: '重命名',
+        workspaceRenamePrompt: '请输入工作区「{title}」的新名称：',
+        workspaceDelete: '删除',
+        workspaceDeleteConfirm: '将把「{title}」从工作区列表中移除。文件夹与会话记录会保留，其会话将显示在「未分组」下。',
         deletedAt: (ms: number) => {
           const d = new Date(ms)
           const pad = (n: number) => String(n).padStart(2, '0')
@@ -563,6 +670,15 @@ function stringsOf() {
         unpin: 'Unpin panel',
         drawerPinHint: 'When pinned, the panel stays open and does not close on outside clicks.',
         close: 'Close',
+        ungrouped: 'Ungrouped',
+        sortNewest: 'Newest first',
+        sortOldest: 'Oldest first',
+        workspaceDragHint: 'Drag to reorder workspaces',
+        workspaceToTop: 'Move to top',
+        workspaceRename: 'Rename',
+        workspaceRenamePrompt: 'Enter a new name for workspace "{title}":',
+        workspaceDelete: 'Delete',
+        workspaceDeleteConfirm: 'This removes "{title}" from the workspace list. The folder and session logs will be kept. Its sessions will appear under Ungrouped.',
         deletedAt: (ms: number) => {
           const d = new Date(ms)
           const pad = (n: number) => String(n).padStart(2, '0')
@@ -571,7 +687,7 @@ function stringsOf() {
       }
 }
 
-function SessionManager({ useSessions, useWorkspaces, api, sessions, close }: SessionManagerProps): ReactElement {
+function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceActions, close }: SessionManagerProps): ReactElement {
   const list = useSessions((state) => state)
   const workspaces = useWorkspaces((state) => state)
   const [removed, setRemoved] = useState<ReadonlySet<string>>(() => loadRemoved())
@@ -584,7 +700,14 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, close }: Se
   const [notice, setNotice] = useState<Notice | null>(null)
   const [statsId, setStatsId] = useState<string | null>(null)
   const [stats, setStats] = useState<StatsState | null>(null)
+  const [newestFirst, setNewestFirst] = useState(true)
+  const [dragWorkspaceId, setDragWorkspaceId] = useState<string | null>(null)
+  // Drop slot: 'before:<id>' inserts before that workspace, 'end' appends.
+  const [dropSlot, setDropSlot] = useState<string | null>(null)
   const noticeTimer = useRef<number | undefined>(undefined)
+  // Mutable mirrors for pointer-drag handlers (avoid stale closures).
+  const dropSlotRef = useRef<string | null>(null)
+  const groupsRef = useRef<typeof activeGroups>([])
   const strings = stringsOf()
 
   // Notices auto-dismiss after a few seconds instead of lingering.
@@ -624,6 +747,213 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, close }: Se
       session !== undefined && !removed.has(session.id) && !session.blank)
   const activeRows = summaries.filter((session) => !archivedSet.has(session.id))
   const archivedRows = summaries.filter((session) => archivedSet.has(session.id) && !trashIds.has(session.id))
+
+  // Group active sessions by workspace; within each group sort by last use
+  // (updatedAt), newest first by default, toggled by the header sort button.
+  const sortActive = (rows: SessionSummary[]): SessionSummary[] =>
+    [...rows].sort((a, b) => (newestFirst ? b.updatedAt - a.updatedAt : a.updatedAt - b.updatedAt))
+  const activeGroups: { workspaceId: string; title: string; rows: SessionSummary[] }[] = []
+  for (const view of workspaces.items) {
+    const rows = sortActive(activeRows.filter((session) => view.sessionIds.includes(session.id)))
+    if (rows.length > 0) activeGroups.push({ workspaceId: view.workspaceId, title: view.title || view.path, rows })
+  }
+  const ungroupedActive = sortActive(activeRows.filter((session) =>
+    !workspaces.items.some((view) => view.sessionIds.includes(session.id))))
+  if (ungroupedActive.length > 0) activeGroups.push({ workspaceId: '__ungrouped__', title: strings.ungrouped, rows: ungroupedActive })
+  groupsRef.current = activeGroups
+
+  // Custom pointer-based drag & drop (HTML5 DnD drops were unreliable here).
+  // The judge zone is the LABEL itself: its upper half inserts before the
+  // workspace, its lower half after it. "After A" and "before B" normalize to
+  // the same slot (B's top edge), so one thin line is drawn.
+  const handleWorkspaceDrop = useCallback(async (slot: string | null): Promise<void> => {
+    setDropSlot(null)
+    const dragged = dragWorkspaceId
+    setDragWorkspaceId(null)
+    if (dragged === null || slot === null) return
+    try {
+      let beforeId: string | undefined
+      if (slot.startsWith('swap:')) {
+        // Swap with the target workspace.
+        const swapId = slot.slice(5)
+        if (swapId === dragged || swapId === '__ungrouped__') return
+        const order = groupsRef.current.map((g) => g.workspaceId)
+        const aIndex = order.indexOf(dragged)
+        const bIndex = order.indexOf(swapId)
+        beforeId = aIndex >= 0 && bIndex >= 0 && aIndex < bIndex ? order[bIndex + 1] : swapId
+      } else if (slot.startsWith('before:')) {
+        beforeId = slot.slice(7)
+      }
+      // '__end__' leaves beforeId undefined → appended to the very end.
+      await workspaceActions.insertBefore(dragged as never, beforeId as never)
+    } catch {
+      // Best-effort; the next poll re-baselines the list.
+    }
+  }, [workspaceActions, dragWorkspaceId])
+
+  // Move a workspace to the top of the group list.
+  const moveWorkspaceToTop = useCallback(async (workspaceId: string): Promise<void> => {
+    const order = groupsRef.current.map((g) => g.workspaceId)
+    const firstId = order.find((id) => id !== '__ungrouped__')
+    if (firstId === undefined || firstId === workspaceId) return
+    try {
+      await workspaceActions.insertBefore(workspaceId as never, firstId as never)
+    } catch {
+      // Best-effort; the next poll re-baselines the list.
+    }
+  }, [workspaceActions])
+
+  // Rename a workspace through a prompt dialog.
+  const renameWorkspace = useCallback(async (group: { workspaceId: string; title: string }): Promise<void> => {
+    const input = window.prompt(strings.workspaceRenamePrompt.replace('{title}', group.title), group.title)
+    if (input === null) return
+    const title = input.trim()
+    if (title === '' || title === group.title) return
+    try {
+      await workspaceActions.rename(group.workspaceId as never, title as never)
+    } catch {
+      // Best-effort; the next poll re-baselines the list.
+    }
+  }, [workspaceActions])
+
+  // Delete a workspace after a confirmation dialog; its sessions fall back
+  // to the ungrouped bucket.
+  const deleteWorkspace = useCallback(async (group: { workspaceId: string; title: string }): Promise<void> => {
+    if (!window.confirm(strings.workspaceDeleteConfirm.replace('{title}', group.title))) return
+    try {
+      await workspaceActions.delete(group.workspaceId as never)
+    } catch {
+      // Best-effort; the next poll re-baselines the list.
+    }
+  }, [workspaceActions])
+
+  const renderWorkspaceLabel = (
+    group: { workspaceId: string; title: string; rows: SessionSummary[] },
+    index: number,
+  ): ReactElement => {
+    const draggable = group.workspaceId !== '__ungrouped__'
+    return createElement('div', {
+      className: 'dsh-delete-session__group-label' + (draggable ? ' dsh-delete-session__group-label--drag' : ''),
+      'data-drag-workspace': group.workspaceId,
+      'data-dragging': dragWorkspaceId === group.workspaceId || undefined,
+      'data-drop-swap': dropSlot === `swap:${group.workspaceId}` || undefined,
+      title: draggable ? strings.workspaceDragHint : undefined,
+      onPointerDown: draggable ? (e: PointerEvent) => {
+        if (e.button !== 0) return
+        e.preventDefault()
+        setDragWorkspaceId(group.workspaceId)
+        dropSlotRef.current = null
+        setDropSlot(null)
+        const el = e.currentTarget as HTMLElement
+        try {
+          el.setPointerCapture(e.pointerId)
+        } catch {
+          // Capture is best-effort; moves still arrive while over the element.
+        }
+      } : undefined,
+      onPointerMove: draggable ? (e: PointerEvent) => {
+        if (dragWorkspaceId === null) return
+        // Fuzzy judge: map the pointer Y to the nearest workspace label inside
+        // this panel. Anywhere below a label (its sessions, the gap) counts as
+        // that label's "after"; the upper half of the label itself is "before".
+        const hit = document.elementFromPoint(e.clientX, e.clientY)
+        const panel = hit instanceof Element
+          ? hit.closest('[data-dsh-delete-session], [data-dsh-drawer]')
+          : null
+        if (panel === null) {
+          dropSlotRef.current = null
+          setDropSlot(null)
+          return
+        }
+        const labels = Array.from(panel.querySelectorAll('[data-drag-workspace]'))
+        const groups = groupsRef.current
+        let targetIndex = -1
+        for (let i = 0; i < labels.length; i++) {
+          const rect = labels[i].getBoundingClientRect()
+          if (e.clientY >= rect.top - 6) targetIndex = i
+        }
+        if (targetIndex < 0 || targetIndex >= groups.length) {
+          dropSlotRef.current = null
+          setDropSlot(null)
+          return
+        }
+        const rect = labels[targetIndex].getBoundingClientRect()
+        let slot: string | null
+        if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
+          // On the label itself: swap the two workspaces.
+          slot = `swap:${groups[targetIndex].workspaceId}`
+        } else if (e.clientY < rect.top) {
+          slot = `before:${groups[targetIndex].workspaceId}`
+        } else {
+          const next = targetIndex + 1 < groups.length ? groups[targetIndex + 1] : null
+          slot = next !== null ? `before:${next.workspaceId}` : '__end__'
+        }
+        dropSlotRef.current = slot
+        setDropSlot(slot)
+      } : undefined,
+      onPointerUp: draggable ? (e: PointerEvent) => {
+        if (dragWorkspaceId === null) return
+        try {
+          ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+        } catch {
+          // Noop when capture was never granted.
+        }
+        void handleWorkspaceDrop(dropSlotRef.current)
+      } : undefined,
+      children: [
+        createElement('span', { className: 'dsh-delete-session__group-label-text' }, `${group.title} (${group.rows.length})`),
+        draggable ? createElement('span', { className: 'dsh-delete-session__group-actions' },
+          createElement('button', {
+            className: 'dsh-delete-session__group-action',
+            type: 'button',
+            title: strings.workspaceToTop,
+            onPointerDown: (e: PointerEvent) => e.stopPropagation(),
+            onClick: (e: MouseEvent) => {
+              e.stopPropagation()
+              void moveWorkspaceToTop(group.workspaceId)
+            },
+          }, strings.workspaceToTop),
+          createElement('button', {
+            className: 'dsh-delete-session__group-action',
+            type: 'button',
+            title: strings.workspaceRename,
+            onPointerDown: (e: PointerEvent) => e.stopPropagation(),
+            onClick: (e: MouseEvent) => {
+              e.stopPropagation()
+              void renameWorkspace(group)
+            },
+          }, strings.workspaceRename),
+          createElement('button', {
+            className: 'dsh-delete-session__group-action dsh-delete-session__group-action--danger',
+            type: 'button',
+            title: strings.workspaceDelete,
+            onPointerDown: (e: PointerEvent) => e.stopPropagation(),
+            onClick: (e: MouseEvent) => {
+              e.stopPropagation()
+              void deleteWorkspace(group)
+            },
+          }, strings.workspaceDelete),
+        ) : null,
+      ],
+    })
+  }
+
+  // The group block is pure presentation; the thin line hugs the group edge.
+  const renderWorkspaceGroup = (group: { workspaceId: string; title: string; rows: SessionSummary[] }, index: number): ReactElement => {
+    const next = index + 1 < activeGroups.length ? activeGroups[index + 1] : null
+    return createElement('div', {
+      key: group.workspaceId,
+      className: 'dsh-delete-session__group',
+      'data-first': index === 0 || undefined,
+      'data-line-top': dropSlot === `before:${group.workspaceId}` || undefined,
+      'data-line-end': dropSlot === '__end__' && next === null || undefined,
+    },
+      renderWorkspaceLabel(group, index),
+      createElement('ul', { className: 'dsh-delete-session__list' },
+        ...group.rows.map((session) => renderRow(session, false)),
+      ),
+    )
+  }
 
   const markRemoved = useCallback((sessionId: string): void => {
     setRemoved((previous) => {
@@ -923,6 +1253,13 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, close }: Se
   return createElement('div', { 'data-dsh-delete-session': '' },
     createElement('div', { className: 'dsh-delete-session__header' },
       createElement('span', { className: 'dsh-delete-session__title' }, strings.title),
+      createElement('button', {
+        type: 'button',
+        className: 'dsh-delete-session__sort',
+        title: newestFirst ? strings.sortOldest : strings.sortNewest,
+        onClick: () => setNewestFirst((value) => !value),
+        children: newestFirst ? strings.sortNewest : strings.sortOldest,
+      }),
       createElement('span', { className: 'dsh-delete-session__count' }, strings.count(activeRows.length)),
     ),
     notice !== null && createElement('div', {
@@ -930,9 +1267,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, close }: Se
     }, notice.text),
     activeRows.length === 0
       ? createElement('div', { className: 'dsh-delete-session__empty' }, strings.empty)
-      : createElement('ul', { className: 'dsh-delete-session__list' },
-          ...activeRows.map((session) => renderRow(session, false)),
-        ),
+      : activeGroups.map((group, index) => renderWorkspaceGroup(group, index)),
     archivedRows.length > 0 && createElement('div', { className: 'dsh-delete-session__group' },
       createElement('button', {
         type: 'button',
@@ -992,6 +1327,12 @@ export function apply(ctx: ClientContext): void {
 
   // The wire client: official session.history RPC for stats folding.
   const { api } = ctx.get('connection') as ConnectionHandle
+  // Resolve services at the ROOT context (apply time): the slot `inject:`
+  // callbacks are evaluated inside the slot's own cordis scope, where these
+  // services are not declared — accessing ctx.<service> there throws
+  // `cannot get property "... " without inject`.
+  const sessions = ctx.sessions
+  const workspaces = ctx.workspaces
 
   // A dedicated Settings section (like Notifications), not a General row.
   ctx.slots.inject('settings.section', () => {
@@ -1001,7 +1342,7 @@ export function apply(ctx: ClientContext): void {
       order: 60,
       label: () => t('nav'),
       locale: NS,
-      inject: () => ({ api, sessions: ctx.sessions }),
+      inject: () => ({ api, sessions, workspaceActions: workspaces }),
     }, SessionManager)
     return () => {
       disposeRegistration()
@@ -1013,7 +1354,7 @@ export function apply(ctx: ClientContext): void {
   // also hosts the Session log button). Order, left to right:
   //   对话管理 (-40 host) → 对话管理按钮 (-30) → 回收站按钮 (-20) → 删除本对话 (-10) → Session log (0)
   ctx.slots.inject('conversation.session.header.utilities', () => {
-    const common = () => ({ api, sessions: ctx.sessions })
+    const common = () => ({ api, sessions })
     const disposers = [
       ctx.slots.register({
         name: 'conversation.session.header.utilities',
@@ -1051,6 +1392,7 @@ interface ClientContext {
   get<T>(service: string): T
   effect(effect: () => void | (() => void), label?: string): void
   sessions: import('@deepseek-ai/dsh-client-runtime/client').ISessions
+  workspaces: import('@deepseek-ai/dsh-client-runtime/client').IWorkspaces
   locale: {
     register(namespace: string, dictionaries: Record<'zh' | 'en', Record<string, string>>): () => void
     bind(namespace: string): (key: 'nav') => string
@@ -1187,6 +1529,7 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
   const state = useDrawerState()
   const strings = stringsOf()
   const [rows, setRows] = useState<DrawerRow[] | null>(null)
+  const [workspaces, setWorkspaces] = useState<WorkspaceView[]>([])
   const [loadError, setLoadError] = useState(false)
   const [trash, setTrash] = useState<TrashEntry[] | null>(null)
   const [trashLimit, setTrashLimit] = useState(10)
@@ -1196,6 +1539,13 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [statsId, setStatsId] = useState<string | null>(null)
   const [stats, setStats] = useState<StatsState | null>(null)
+  const [newestFirst, setNewestFirst] = useState(true)
+  const [dragWorkspaceId, setDragWorkspaceId] = useState<string | null>(null)
+  // Drop slot: 'before:<id>' inserts before that workspace, 'end' appends.
+  const [dropSlot, setDropSlot] = useState<string | null>(null)
+  // Mutable mirrors for pointer-drag handlers (avoid stale closures).
+  const dropSlotRef = useRef<string | null>(null)
+  const groupsRef = useRef<typeof activeGroups>([])
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -1218,6 +1568,7 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
             blank: summary.blank,
             archived: archived.has(summary.sessionId),
           })))
+        setWorkspaces(workspacesRes.result.value.items)
         setLoadError(false)
       } else {
         setLoadError(true)
@@ -1461,6 +1812,227 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
   const trashIds = new Set((trash ?? []).map((entry) => entry.sessionId))
   const archivedRows = (rows ?? []).filter((row) => row.archived && !trashIds.has(row.sessionId))
 
+  // Group active sessions by workspace; within each group sort by last use
+  // (updatedAt), newest first by default, toggled by the drawer sort button.
+  const sortRows = (list: DrawerRow[]): DrawerRow[] =>
+    [...list].sort((a, b) => (newestFirst ? b.updatedAt - a.updatedAt : a.updatedAt - b.updatedAt))
+  const activeGroups: { workspaceId: string; title: string; rows: DrawerRow[] }[] = []
+  for (const view of workspaces) {
+    const groupRows = sortRows(activeRows.filter((row) => view.sessionIds.includes(row.sessionId as WireSessionId)))
+    if (groupRows.length > 0) activeGroups.push({ workspaceId: view.workspaceId, title: view.title || view.path, rows: groupRows })
+  }
+  const ungroupedActive = sortRows(activeRows.filter((row) =>
+    !workspaces.some((view) => view.sessionIds.includes(row.sessionId as WireSessionId))))
+  if (ungroupedActive.length > 0) activeGroups.push({ workspaceId: '__ungrouped__', title: strings.ungrouped, rows: ungroupedActive })
+  groupsRef.current = activeGroups
+
+  // Drag-and-drop workspace reordering through the official wire API.
+  // Slot-based: dropping into a slot inserts the dragged workspace there;
+  // dropping on a label swaps the two workspaces.
+  const handleWorkspaceDrop = useCallback(async (slot: string | null): Promise<void> => {
+    setDropSlot(null)
+    const dragged = dragWorkspaceId
+    setDragWorkspaceId(null)
+    if (dragged === null || slot === null) return
+    try {
+      let beforeWorkspaceId: string | undefined
+      if (slot.startsWith('swap:')) {
+        // Swap with the target workspace.
+        const swapId = slot.slice(5)
+        if (swapId === dragged || swapId === '__ungrouped__') return
+        const order = groupsRef.current.map((g) => g.workspaceId)
+        const aIndex = order.indexOf(dragged)
+        const bIndex = order.indexOf(swapId)
+        beforeWorkspaceId = aIndex >= 0 && bIndex >= 0 && aIndex < bIndex ? order[bIndex + 1] : swapId
+      } else if (slot.startsWith('before:')) {
+        beforeWorkspaceId = slot.slice(7)
+      }
+      // '__end__' leaves beforeWorkspaceId undefined → appended to the very end.
+      await api.workspace.insertBefore({
+        workspaceId: dragged as never,
+        beforeWorkspaceId: beforeWorkspaceId as never,
+      })
+      await load()
+    } catch {
+      // Reordering is best-effort; the next poll re-baselines the list.
+    }
+  }, [api, load, dragWorkspaceId])
+
+  // Move a workspace to the top of the group list.
+  const moveWorkspaceToTop = useCallback(async (workspaceId: string): Promise<void> => {
+    const order = groupsRef.current.map((g) => g.workspaceId)
+    const firstId = order.find((id) => id !== '__ungrouped__')
+    if (firstId === undefined || firstId === workspaceId) return
+    try {
+      await api.workspace.insertBefore({
+        workspaceId: workspaceId as never,
+        beforeWorkspaceId: firstId as never,
+      })
+      await load()
+    } catch {
+      // Best-effort; the next poll re-baselines the list.
+    }
+  }, [api, load])
+
+  // Rename a workspace through a prompt dialog.
+  const renameWorkspace = useCallback(async (group: { workspaceId: string; title: string }): Promise<void> => {
+    const input = window.prompt(strings.workspaceRenamePrompt.replace('{title}', group.title), group.title)
+    if (input === null) return
+    const title = input.trim()
+    if (title === '' || title === group.title) return
+    try {
+      await api.workspace.rename({
+        workspaceId: group.workspaceId as never,
+        title: title as never,
+      })
+      await load()
+    } catch {
+      // Best-effort; the next poll re-baselines the list.
+    }
+  }, [api, load])
+
+  // Delete a workspace after a confirmation dialog; its sessions fall back
+  // to the ungrouped bucket.
+  const deleteWorkspace = useCallback(async (group: { workspaceId: string; title: string }): Promise<void> => {
+    if (!window.confirm(strings.workspaceDeleteConfirm.replace('{title}', group.title))) return
+    try {
+      await api.workspace.delete({
+        workspaceId: group.workspaceId as never,
+      })
+      await load()
+    } catch {
+      // Best-effort; the next poll re-baselines the list.
+    }
+  }, [api, load])
+
+  const renderWorkspaceLabel = (
+    group: { workspaceId: string; title: string; rows: DrawerRow[] },
+    index: number,
+  ): ReactElement => {
+    const draggable = group.workspaceId !== '__ungrouped__'
+    return createElement('div', {
+      className: 'dsh-delete-session__group-label' + (draggable ? ' dsh-delete-session__group-label--drag' : ''),
+      'data-drag-workspace': group.workspaceId,
+      'data-dragging': dragWorkspaceId === group.workspaceId || undefined,
+      'data-drop-swap': dropSlot === `swap:${group.workspaceId}` || undefined,
+      title: draggable ? strings.workspaceDragHint : undefined,
+      onPointerDown: draggable ? (e: PointerEvent) => {
+        if (e.button !== 0) return
+        e.preventDefault()
+        setDragWorkspaceId(group.workspaceId)
+        dropSlotRef.current = null
+        setDropSlot(null)
+        const el = e.currentTarget as HTMLElement
+        try {
+          el.setPointerCapture(e.pointerId)
+        } catch {
+          // Capture is best-effort; moves still arrive while over the element.
+        }
+      } : undefined,
+      onPointerMove: draggable ? (e: PointerEvent) => {
+        if (dragWorkspaceId === null) return
+        // Fuzzy judge: map the pointer Y to the nearest workspace label inside
+        // this panel. Anywhere below a label (its sessions, the gap) counts as
+        // that label's "after"; the upper half of the label itself is "before".
+        const hit = document.elementFromPoint(e.clientX, e.clientY)
+        const panel = hit instanceof Element
+          ? hit.closest('[data-dsh-delete-session], [data-dsh-drawer]')
+          : null
+        if (panel === null) {
+          dropSlotRef.current = null
+          setDropSlot(null)
+          return
+        }
+        const labels = Array.from(panel.querySelectorAll('[data-drag-workspace]'))
+        const groups = groupsRef.current
+        let targetIndex = -1
+        for (let i = 0; i < labels.length; i++) {
+          const rect = labels[i].getBoundingClientRect()
+          if (e.clientY >= rect.top - 6) targetIndex = i
+        }
+        if (targetIndex < 0 || targetIndex >= groups.length) {
+          dropSlotRef.current = null
+          setDropSlot(null)
+          return
+        }
+        const rect = labels[targetIndex].getBoundingClientRect()
+        let slot: string | null
+        if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
+          // On the label itself: swap the two workspaces.
+          slot = `swap:${groups[targetIndex].workspaceId}`
+        } else if (e.clientY < rect.top) {
+          slot = `before:${groups[targetIndex].workspaceId}`
+        } else {
+          const next = targetIndex + 1 < groups.length ? groups[targetIndex + 1] : null
+          slot = next !== null ? `before:${next.workspaceId}` : '__end__'
+        }
+        dropSlotRef.current = slot
+        setDropSlot(slot)
+      } : undefined,
+      onPointerUp: draggable ? (e: PointerEvent) => {
+        if (dragWorkspaceId === null) return
+        try {
+          ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+        } catch {
+          // Noop when capture was never granted.
+        }
+        void handleWorkspaceDrop(dropSlotRef.current)
+      } : undefined,
+      children: [
+        createElement('span', { className: 'dsh-delete-session__group-label-text' }, `${group.title} (${group.rows.length})`),
+        draggable ? createElement('span', { className: 'dsh-delete-session__group-actions' },
+          createElement('button', {
+            className: 'dsh-delete-session__group-action',
+            type: 'button',
+            title: strings.workspaceToTop,
+            onPointerDown: (e: PointerEvent) => e.stopPropagation(),
+            onClick: (e: MouseEvent) => {
+              e.stopPropagation()
+              void moveWorkspaceToTop(group.workspaceId)
+            },
+          }, strings.workspaceToTop),
+          createElement('button', {
+            className: 'dsh-delete-session__group-action',
+            type: 'button',
+            title: strings.workspaceRename,
+            onPointerDown: (e: PointerEvent) => e.stopPropagation(),
+            onClick: (e: MouseEvent) => {
+              e.stopPropagation()
+              void renameWorkspace(group)
+            },
+          }, strings.workspaceRename),
+          createElement('button', {
+            className: 'dsh-delete-session__group-action dsh-delete-session__group-action--danger',
+            type: 'button',
+            title: strings.workspaceDelete,
+            onPointerDown: (e: PointerEvent) => e.stopPropagation(),
+            onClick: (e: MouseEvent) => {
+              e.stopPropagation()
+              void deleteWorkspace(group)
+            },
+          }, strings.workspaceDelete),
+        ) : null,
+      ],
+    })
+  }
+
+  // The group block is pure presentation; the thin line hugs the group edge.
+  const renderWorkspaceGroup = (group: { workspaceId: string; title: string; rows: DrawerRow[] }, index: number): ReactElement => {
+    const next = index + 1 < activeGroups.length ? activeGroups[index + 1] : null
+    return createElement('div', {
+      key: group.workspaceId,
+      className: 'dsh-delete-session__group',
+      'data-first': index === 0 || undefined,
+      'data-line-top': dropSlot === `before:${group.workspaceId}` || undefined,
+      'data-line-end': dropSlot === '__end__' && next === null || undefined,
+    },
+      renderWorkspaceLabel(group, index),
+      createElement('ul', { className: 'dsh-delete-session__list' },
+        ...group.rows.map((row) => renderRow(row)),
+      ),
+    )
+  }
+
   return createElement(Fragment, null,
     !state.pinned && createElement('div', {
       'data-dsh-drawer-backdrop': '',
@@ -1469,6 +2041,13 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
     createElement('div', { 'data-dsh-drawer': '' },
       createElement('div', { className: 'dsh-drawer__header' },
         createElement('span', { className: 'dsh-drawer__title' }, strings.title),
+        createElement('button', {
+          type: 'button',
+          className: 'dsh-delete-session__sort',
+          title: newestFirst ? strings.sortOldest : strings.sortNewest,
+          onClick: () => setNewestFirst((value) => !value),
+          children: newestFirst ? strings.sortNewest : strings.sortOldest,
+        }),
         createElement('button', {
           type: 'button',
           className: 'dsh-drawer__pin',
@@ -1498,9 +2077,9 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
       createElement('div', { className: 'dsh-drawer__body' },
         state.pinned && createElement('div', { className: 'dsh-drawer__hint' }, strings.drawerPinHint),
         loadError && createElement('div', { className: 'dsh-delete-session__notice dsh-delete-session__notice--error' }, strings.trashLoadFailed),
-        createElement('ul', { className: 'dsh-delete-session__list' },
-          ...activeRows.map((row) => renderRow(row)),
-        ),
+        activeRows.length === 0
+          ? createElement('div', { className: 'dsh-delete-session__empty' }, strings.empty)
+          : activeGroups.map((group, index) => renderWorkspaceGroup(group, index)),
         archivedRows.length > 0 && createElement('div', { className: 'dsh-delete-session__group' },
           createElement('button', {
             type: 'button',

@@ -15,6 +15,7 @@ interface ClientContext {
     get<T>(service: string): T;
     effect(effect: () => void | (() => void), label?: string): void;
     sessions: import('@deepseek-ai/dsh-client-runtime/client').ISessions;
+    workspaces: import('@deepseek-ai/dsh-client-runtime/client').IWorkspaces;
     locale: {
         register(namespace: string, dictionaries: Record<'zh' | 'en', Record<string, string>>): () => void;
         bind(namespace: string): (key: 'nav') => string;

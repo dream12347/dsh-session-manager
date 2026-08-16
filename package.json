@@ -1,6 +1,6 @@
 {
   "name": "dsh-delete-session",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Full session management for the DSH web UI: delete (with trash/restore/purge), restore archived sessions, activity stats, continue/pause, and open log folders. No harness changes.",
   "type": "module",
   "main": "lib/index.js",

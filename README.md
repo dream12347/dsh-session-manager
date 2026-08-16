@@ -16,6 +16,7 @@
 - **文件夹**：在系统文件管理器中打开会话日志目录
 - **删除本对话**：对话顶部右侧红色按钮，一键删除当前对话（Session log 左侧）
 - **对话管理 / 回收站**：对话顶部入口，打开自绘右侧抽屉（图钉固定常驻、点击外部自动收起）
+- **工作区管理**：会话按工作区分组展示，组内按最后使用时间排序（可切换最新/最旧）；拖拽工作区标题即可调整顺序（插入 / 交换 / 拖到末尾）；悬停标题出现**置于顶部 / 重命名 / 删除**按钮（删除按官方定义：仅移出列表，文件夹与会话记录保留，会话归入「未分组」）
 - 删除限制：仅禁止删除「正在思考」的会话；当前打开的会话（空闲）可删除
 - 子代理（subagent）功能不受影响：其会话由 DSH 委派机制管理，本插件不提供删除入口（子代理需在其父会话中结束/清理）
 - 中英文界面自适应（跟随页面语言）
@@ -39,7 +40,7 @@
 ### 从 GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-delete-session#v0.1.3'
+dsh plugin --profile web add 'github:dream12347/dsh-delete-session#v0.1.4'
 ```
 
 ### 从本地目录
@@ -52,7 +53,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-delete-session
 
 ```sh
 pnpm pack
-dsh plugin --profile web add /absolute/path/to/dsh-delete-session-0.1.0.tgz
+dsh plugin --profile web add /absolute/path/to/dsh-delete-session-0.1.4.tgz
 ```
 
 安装完成后**重启** `dsh web`（host 插件与客户端 bundle 需要重启加载）。
@@ -67,6 +68,9 @@ dsh plugin --profile web add /absolute/path/to/dsh-delete-session-0.1.0.tgz
 4. 删除会话 → 进入底部「回收站」折叠区（保留最近 10 条）
 5. 回收站内可 **恢复**（回到会话列表）或 **彻底删除**（永久清除，不可恢复）
 6. 每行操作：**继续会话**（打开并进入对话）、**暂停**（停止正在运行的回合）、**统计**（展开近期活动）、**文件夹**（打开日志目录）、**删除**
+7. 工作区标题右侧（悬停显示）：**置于顶部**（挪到最前）、**重命名**、**删除**（红色，二次确认）
+8. 拖拽工作区标题可调整顺序：放到某个工作区上方/下方插入，放到标题上交换位置，拖到最下方即移到末尾
+9. 排序按钮（最新在前 / 最旧在前）切换组内会话的排列顺序
 
 ### 对话顶部快捷入口
 
