@@ -17,6 +17,7 @@
 - **删除本对话**：对话顶部右侧红色按钮，一键删除当前对话（Session log 左侧）
 - **对话管理 / 回收站**：对话顶部入口，打开自绘右侧抽屉（图钉固定常驻、点击外部自动收起）
 - **工作区管理**：会话按工作区分组展示，组内按最后使用时间排序（可切换最新/最旧）；拖拽工作区标题即可调整顺序（插入 / 交换 / 拖到末尾）；悬停标题出现**置于顶部 / 重命名 / 删除**按钮（删除按官方定义：仅移出列表，文件夹与会话记录保留，会话归入「未分组」）
+- **上下文压缩阈值**（通用设置）：设置对话上下文用到模型窗口（100 万 token）的多少比例时自动压缩（17%–90%），每次压缩保留最近 16% 原文；保存后立即生效（含已打开的会话），持久化到 Agent 预设
 - 删除限制：仅禁止删除「正在思考」的会话；当前打开的会话（空闲）可删除
 - 子代理（subagent）功能不受影响：其会话由 DSH 委派机制管理，本插件不提供删除入口（子代理需在其父会话中结束/清理）
 - 中英文界面自适应（跟随页面语言）
@@ -40,7 +41,7 @@
 ### 从 GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-delete-session#v0.1.4'
+dsh plugin --profile web add 'github:dream12347/dsh-delete-session#v0.1.5'
 ```
 
 ### 从本地目录
@@ -53,7 +54,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-delete-session
 
 ```sh
 pnpm pack
-dsh plugin --profile web add /absolute/path/to/dsh-delete-session-0.1.4.tgz
+dsh plugin --profile web add /absolute/path/to/dsh-delete-session-0.1.5.tgz
 ```
 
 安装完成后**重启** `dsh web`（host 插件与客户端 bundle 需要重启加载）。
@@ -71,6 +72,12 @@ dsh plugin --profile web add /absolute/path/to/dsh-delete-session-0.1.4.tgz
 7. 工作区标题右侧（悬停显示）：**置于顶部**（挪到最前）、**重命名**、**删除**（红色，二次确认）
 8. 拖拽工作区标题可调整顺序：放到某个工作区上方/下方插入，放到标题上交换位置，拖到最下方即移到末尾
 9. 排序按钮（最新在前 / 最旧在前）切换组内会话的排列顺序
+
+### 通用设置：上下文压缩阈值
+
+1. 打开 **设置** → **通用设置**（General）
+2. 找到「上下文压缩阈值」：滑块 / 输入框设置 17%–90%
+3. 保存后立即生效（含已打开的会话）；配置写入当前 Agent 预设，重启后依然有效
 
 ### 对话顶部快捷入口
 

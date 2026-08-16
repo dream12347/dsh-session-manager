@@ -1,7 +1,7 @@
 {
   "name": "dsh-delete-session",
-  "version": "0.1.4",
-  "description": "Full session management for the DSH web UI: delete (with trash/restore/purge), restore archived sessions, activity stats, continue/pause, and open log folders. No harness changes.",
+  "version": "0.1.5",
+  "description": "Full session management for the DSH web UI: delete (with trash/restore/purge), restore archived sessions, activity stats, continue/pause, and open log folders. Plus a context compaction threshold setting. No harness changes.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -74,7 +74,21 @@
     "zod": "link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/zod"
   },
   "peerDependencies": {
-    "react": "^18.2.0"
+    "react": "^18.2.0",
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/cosmokit": "^1.8.2",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@deepseek-ai/dsh-scope": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-storage": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-storage-domain": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-atomic-write": "^0.1.0-rc.6",
+    "@deepseek-ai/cordis-plugin-loader": "^1.0.2",
+    "@deepseek-ai/cordis-plugin-include": "^1.0.6",
+    "@deepseek-ai/dsh-agent-presets": "^0.1.0-rc.6",
+    "zod": "^4.4.3",
+    "js-yaml": "^4.3.1"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

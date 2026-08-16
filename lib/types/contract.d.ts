@@ -15,6 +15,8 @@ export declare const TRASH_ROUTE = "/dsh-delete-session/trash";
 export declare const OPEN_FOLDER_ROUTE = "/dsh-delete-session/open-folder";
 /** Stop a running session's current turn (pause). */
 export declare const PAUSE_ROUTE = "/dsh-delete-session/pause";
+/** Write the context compaction threshold into the official compaction plugin config. */
+export declare const COMPACTION_THRESHOLD_ROUTE = "/dsh-delete-session/compaction-threshold";
 /** POST /dsh-delete-session/delete request body. */
 export interface DeleteSessionRequest {
     sessionId: string;

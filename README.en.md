@@ -17,6 +17,7 @@ Possibly the most feature-complete DSH session manager plugin out there: full se
 - **Delete this session**: a red button in the conversation header (left of Session log) to delete the current session
 - **Session Manager / Trash** header buttons: a self-drawn right drawer (pin to keep open, outside-click to close)
 - **Workspace management**: sessions are grouped by workspace, sorted by last use within each group (toggle newest/oldest first); drag a workspace title to reorder (insert before/after, swap on the title, drag to the bottom to append); hovering a title shows **Move to top / Rename / Delete** buttons (delete follows the official definition: it only removes the workspace from the list — the folder and session logs are kept, and its sessions appear under Ungrouped)
+- **Context compaction threshold** (General settings): set at what fraction of the 1M-token model window the conversation context auto-compacts (17%–90%), keeping the most recent 16% verbatim; applies immediately on save (including already-open sessions) and persists to the agent preset
 - Delete restriction: only sessions **currently thinking** are protected; an open-but-idle session can be deleted
 - Subagent functionality is unaffected: their sessions are managed by DSH delegation, and this plugin does not offer a delete entry for them (end/clean them up within their parent session)
 - UI language follows the page language (Chinese / English)
@@ -40,7 +41,7 @@ The session management drawer (pin to keep open, outside-click to close):
 ### From GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-delete-session#v0.1.4'
+dsh plugin --profile web add 'github:dream12347/dsh-delete-session#v0.1.5'
 ```
 
 ### From a local directory
@@ -53,7 +54,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-delete-session
 
 ```sh
 pnpm pack
-dsh plugin --profile web add /absolute/path/to/dsh-delete-session-0.1.4.tgz
+dsh plugin --profile web add /absolute/path/to/dsh-delete-session-0.1.5.tgz
 ```
 
 After installing, **restart** `dsh web` (the host plugin and the served client bundle load at startup).
@@ -71,6 +72,12 @@ After installing, **restart** `dsh web` (the host plugin and the served client b
 7. Workspace title actions (shown on hover): **Move to top**, **Rename**, **Delete** (red, with a confirmation dialog)
 8. Drag a workspace title to reorder: drop above/below another workspace to insert, drop on a title to swap, drag to the very bottom to append
 9. The sort toggle (newest first / oldest first) switches the session order inside each group
+
+### General settings: context compaction threshold
+
+1. Open **Settings** → **General**
+2. Find "Context compaction threshold": slider / input for 17%–90%
+3. Saving applies immediately (including already-open sessions); the value is persisted into the current agent preset and survives restarts
 
 ### Conversation header shortcuts
 

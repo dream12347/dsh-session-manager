@@ -13,8 +13,13 @@ export default defineConfig([
     fixedExtension: false,
     dts: false,
     clean: false,
-    // Runtime deps are bundled (default) so a `pnpm add github:...` install —
-    // which never installs devDependencies — resolves them from inside the plugin.
+    deps: {
+      // Every @deepseek-ai package is shipped by the DSH host and must stay
+      // EXTERNAL: bundling copies breaks module-level state sharing (dsh-scope's
+      // scope-parent map, cordis symbols/instanceof identity), which makes
+      // cross-plugin APIs like serviceForAgent silently return undefined.
+      onlyBundle: [],
+    },
   },
   {
     name: `${PACKAGE_ID}/client`,

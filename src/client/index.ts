@@ -28,6 +28,7 @@ import { Button, IconTrashOutline16 } from '@deepseek-ai/dsh-client-ui-primitive
 import { createElement, Fragment, useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  COMPACTION_THRESHOLD_ROUTE,
   DELETE_ROUTE,
   OPEN_FOLDER_ROUTE,
   PAUSE_ROUTE,
@@ -245,6 +246,82 @@ const STYLE = `
   border-color: var(--dsw-alias-state-danger-border, #ef4444);
   color: var(--dsw-alias-state-danger-border, #ef4444);
 }
+/* General-settings preference row (context compaction threshold). */
+.dsh-delete-session__general-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--dsw-alias-border-default, #e5e7eb);
+}
+.dsh-delete-session__general-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.dsh-delete-session__general-row-text {
+  min-width: 0;
+}
+.dsh-delete-session__general-row-title {
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+.dsh-delete-session__general-row-desc {
+  color: var(--dsw-alias-label-secondary, #6b7280);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 2px;
+}
+.dsh-delete-session__general-slider {
+  box-sizing: border-box;
+  width: 100%;
+  accent-color: var(--dsw-alias-state-info-border, #4d6bfe);
+  cursor: pointer;
+}
+.dsh-delete-session__general-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.dsh-delete-session__general-input {
+  box-sizing: border-box;
+  width: 64px;
+  padding: 5px 8px;
+  border: 1px solid var(--dsw-alias-border-default, #e5e7eb);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+.dsh-delete-session__general-input:focus {
+  outline: none;
+  border-color: var(--dsw-alias-state-info-border, #4d6bfe);
+}
+.dsh-delete-session__general-percent {
+  color: var(--dsw-alias-label-secondary, #6b7280);
+  font-size: 13px;
+}
+.dsh-delete-session__general-save {
+  flex: none;
+  font-size: 12px;
+  line-height: 1;
+  padding: 6px 12px;
+  border: 1px solid var(--dsw-alias-state-info-border, #4d6bfe);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-state-info-border, #4d6bfe);
+  cursor: pointer;
+}
+.dsh-delete-session__general-save:hover:not(:disabled) {
+  background: var(--dsw-alias-state-info-bg, rgba(77, 107, 254, .12));
+}
+.dsh-delete-session__general-save:disabled {
+  opacity: .6;
+  cursor: default;
+}
 .dsh-delete-session__group-label:first-child {
   margin-top: 0;
 }
@@ -289,10 +366,26 @@ const STYLE = `
   opacity: .85;
 }
 /* Row action buttons must never wrap (a narrow row would stack the label
-   vertically, e.g. 继续/会话) nor shrink below their content. */
+   vertically, e.g. 继续/会话) nor shrink below their content. They are the
+   official Button component (ghost variant is borderless by design); give
+   them a visible border WITHOUT overriding the official text color, and make
+   destructive actions red. */
 .dsh-delete-session__row .dsh-row-action {
   flex: none;
   white-space: nowrap;
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+}
+.dsh-delete-session__row .dsh-row-action:hover:not(:disabled) {
+  border-color: #3964fe;
+}
+.dsh-delete-session__row .dsh-row-action--danger,
+.dsh-delete-session__row .dsh-row-action--danger:hover:not(:disabled) {
+  border-color: #ef4444;
+  color: #ef4444;
 }
 .dsh-delete-session__list {
   list-style: none;
@@ -607,6 +700,11 @@ function stringsOf() {
         workspaceRenamePrompt: '请输入工作区「{title}」的新名称：',
         workspaceDelete: '删除',
         workspaceDeleteConfirm: '将把「{title}」从工作区列表中移除。文件夹与会话记录会保留，其会话将显示在「未分组」下。',
+        compactionThresholdTitle: '上下文压缩阈值',
+        compactionThresholdDesc: '对话上下文用到该比例时自动压缩（最低 17%）。每次压缩会保留最近 16% 的原文，其余折叠为摘要。保存后立即生效（含已打开的会话）。',
+        compactionSave: '保存',
+        compactionSaved: '已保存',
+        compactionSaveFailed: '保存失败',
         deletedAt: (ms: number) => {
           const d = new Date(ms)
           const pad = (n: number) => String(n).padStart(2, '0')
@@ -679,6 +777,11 @@ function stringsOf() {
         workspaceRenamePrompt: 'Enter a new name for workspace "{title}":',
         workspaceDelete: 'Delete',
         workspaceDeleteConfirm: 'This removes "{title}" from the workspace list. The folder and session logs will be kept. Its sessions will appear under Ungrouped.',
+        compactionThresholdTitle: 'Context compaction threshold',
+        compactionThresholdDesc: 'Compacts automatically when the conversation context reaches this fraction of the 1M-token model window (minimum 17%). Each compaction keeps the most recent 16% verbatim and folds the rest into a summary. Applies immediately on save, including already-open sessions.',
+        compactionSave: 'Save',
+        compactionSaved: 'Saved',
+        compactionSaveFailed: 'Save failed',
         deletedAt: (ms: number) => {
           const d = new Date(ms)
           const pad = (n: number) => String(n).padStart(2, '0')
@@ -1202,7 +1305,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         children: strings.folder,
       }),
       createElement(Button, {
-        className: 'dsh-row-action',
+        className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline',
         size: 'sm',
         icon: createElement(IconTrashOutline16, { size: 16 }),
@@ -1239,7 +1342,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         children: strings.restore,
       }),
       createElement(Button, {
-        className: 'dsh-row-action',
+        className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline',
         size: 'sm',
         icon: createElement(IconTrashOutline16, { size: 16 }),
@@ -1333,6 +1436,20 @@ export function apply(ctx: ClientContext): void {
   // `cannot get property "... " without inject`.
   const sessions = ctx.sessions
   const workspaces = ctx.workspaces
+
+  // A General-settings preference row: the context compaction threshold of
+  // the official `dsh-compaction-basic` plugin. It reads the current value
+  // and saves through our host routes (the plugin never registers a settings
+  // namespace, so the settingsScope transport cannot see it).
+  ctx.slots.inject('settings.general.item', () => {
+    const disposeRegistration = ctx.slots.register({
+      name: 'settings.general.item',
+      id: 'dsh-delete-session-compaction-threshold',
+      order: 50,
+      locale: NS,
+    }, CompactionThresholdRow)
+    return disposeRegistration
+  })
 
   // A dedicated Settings section (like Notifications), not a General row.
   ctx.slots.inject('settings.section', () => {
@@ -1434,6 +1551,162 @@ function DeleteCurrentButton({ sessionId }: DeleteCurrentButtonProps): ReactElem
     onClick: handleClick,
     children: strings.deleteCurrent,
   })
+}
+
+// ── General-settings preference row: context compaction threshold ──────────
+
+/** Default of the official `dsh-compaction-basic` plugin (`thresholdRatio`). */
+const COMPACTION_DEFAULT_RATIO = 0.8
+
+/** Allowed threshold range, in percent (mirrors the slider and the input).
+ * The engine requires thresholdRatio > retainRatio (default 0.16), hence the
+ * 17% floor. */
+const COMPACTION_MIN_PERCENT = 17
+const COMPACTION_MAX_PERCENT = 90
+
+/** The model window the official compaction plugin prices against (deepseek adapters). */
+const COMPACTION_CONTEXT_WINDOW = 1000000
+
+/** GET /dsh-delete-session/compaction-threshold response body. */
+interface CompactionThresholdResponse {
+  ok: boolean
+  ratio?: number
+  error?: string
+}
+
+/**
+ * A General-settings preference row for the context compaction threshold.
+ * Reads the current value and saves through our host routes: the loader
+ * applies the change to the running compaction plugin immediately and the
+ * host persists it into the profile's user patch layer, so the value sticks
+ * across restarts.
+ */
+function CompactionThresholdRow(_props: { children?: never }): ReactElement {
+  const strings = stringsOf()
+  const [ratio, setRatio] = useState(COMPACTION_DEFAULT_RATIO)
+  const [draft, setDraft] = useState('')
+  // Once the user has touched the slider/input, the async GET result must
+  // not overwrite their draft (the GET can land after the first drag).
+  const [touched, setTouched] = useState(false)
+  // One decimal place so 0.1% steps survive the round-trip.
+  const percent = Math.round(ratio * 1000) / 10
+  // The slider is a local-draft control: it must not wait for the async save
+  // to round-trip, or dragging snaps it back to the old value.
+  const [slider, setSlider] = useState(Math.min(COMPACTION_MAX_PERCENT, Math.max(COMPACTION_MIN_PERCENT, percent)))
+  useEffect(() => {
+    if (touched) return
+    setSlider((current) => {
+      const next = Math.min(COMPACTION_MAX_PERCENT, Math.max(COMPACTION_MIN_PERCENT, percent))
+      return current === next ? current : next
+    })
+  }, [percent, touched])
+  // Load the current value from the loader once on mount.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const response = await fetch(COMPACTION_THRESHOLD_ROUTE)
+        const data = (await response.json().catch(() => ({}))) as CompactionThresholdResponse
+        if (!cancelled && data.ok === true && typeof data.ratio === 'number') {
+          setRatio(data.ratio)
+        }
+      } catch {
+        // Keep the default; the row stays usable for saving.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  // The number input mirrors the slider's live position (local draft).
+  const display = draft !== '' ? draft : String(slider)
+  // The slider/input are a DRAFT: nothing is written until Save, through our
+  // host route. 'idle' → 'saving' → 'saved' (1.5s) or 'error' (alert).
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const commit = (): void => {
+    const raw = draft.trim()
+    setDraft('')
+    if (raw === '') return
+    const parsed = Number(raw)
+    if (!Number.isFinite(parsed)) return
+    const clamped = Math.min(COMPACTION_MAX_PERCENT, Math.max(COMPACTION_MIN_PERCENT, parsed))
+    setSlider(clamped)
+    setTouched(true)
+  }
+  const save = (): void => {
+    if (saveState === 'saving') return
+    const next = slider / 100
+    // Always call the host: it persists the preset file AND hot-updates the
+    // engines of open sessions. A same-value save is a cheap no-op there.
+    setSaveState('saving')
+    void (async () => {
+      try {
+        const response = await fetch(COMPACTION_THRESHOLD_ROUTE, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ratio: next }),
+        })
+        const data = (await response.json().catch(() => ({}))) as ActionResultResponse
+        if (!response.ok || data.ok !== true) throw new Error(data.error ?? `HTTP ${response.status}`)
+        setRatio(next)
+        setSlider(Math.round(next * 100))
+        setTouched(false)
+        setSaveState('saved')
+        window.setTimeout(() => setSaveState('idle'), 1500)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : ''
+        window.alert(strings.compactionSaveFailed + (message !== '' ? ` (${message})` : ''))
+        setSaveState('idle')
+      }
+    })()
+  }
+  return createElement('div', {
+    className: 'dsh-delete-session__general-row',
+  },
+    createElement('div', { className: 'dsh-delete-session__general-row-head' },
+      createElement('div', { className: 'dsh-delete-session__general-row-text' },
+        createElement('div', { className: 'dsh-delete-session__general-row-title' }, strings.compactionThresholdTitle),
+        createElement('div', { className: 'dsh-delete-session__general-row-desc' }, strings.compactionThresholdDesc),
+      ),
+      createElement('div', { className: 'dsh-delete-session__general-input-wrap' },
+        createElement('input', {
+          className: 'dsh-delete-session__general-input',
+          type: 'number',
+          min: COMPACTION_MIN_PERCENT,
+          max: COMPACTION_MAX_PERCENT,
+          value: display,
+          'aria-label': strings.compactionThresholdTitle,
+          onChange: (e: InputEvent) => setDraft((e.currentTarget as HTMLInputElement).value),
+          onBlur: commit,
+          onKeyDown: (e: KeyboardEvent) => {
+            if (e.key === 'Enter') commit()
+          },
+        }),
+        createElement('span', { className: 'dsh-delete-session__general-percent' }, '%'),
+        createElement('button', {
+          className: 'dsh-delete-session__general-save',
+          type: 'button',
+          disabled: saveState === 'saving',
+          onClick: save,
+        }, saveState === 'saved' ? strings.compactionSaved : strings.compactionSave),
+      ),
+    ),
+    createElement('input', {
+      className: 'dsh-delete-session__general-slider',
+      type: 'range',
+      min: COMPACTION_MIN_PERCENT,
+      max: COMPACTION_MAX_PERCENT,
+      step: 1,
+      value: slider,
+      'aria-label': strings.compactionThresholdTitle,
+      onChange: (e: InputEvent) => {
+        const next = Number((e.currentTarget as HTMLInputElement).value)
+        setSlider(next)
+        setDraft('')
+        setTouched(true)
+      },
+    }),
+  )
 }
 
 // ── Header drawer: session manager + trash as a self-drawn right drawer ─────
@@ -1764,7 +2037,7 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
         onClick: () => void handleOpenFolder(row.sessionId), children: strings.folder,
       }),
       createElement(Button, {
-        className: 'dsh-row-action',
+        className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline', size: 'sm',
         icon: createElement(IconTrashOutline16, { size: 16 }),
         disabled: row.running || busy,
@@ -1797,7 +2070,7 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
         onClick: () => void handleRestore(entry.sessionId, title), children: strings.restore,
       }),
       createElement(Button, {
-        className: 'dsh-row-action',
+        className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline', size: 'sm',
         icon: createElement(IconTrashOutline16, { size: 16 }),
         disabled: busy,
