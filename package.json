@@ -1,5 +1,5 @@
 {
-  "name": "dsh-delete-session",
+  "name": "dsh-session-manager",
   "version": "0.1.5",
   "description": "Full session management for the DSH web UI: delete (with trash/restore/purge), restore archived sessions, activity stats, continue/pause, and open log folders. Plus a context compaction threshold setting. No harness changes.",
   "type": "module",

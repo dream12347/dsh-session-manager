@@ -1,4 +1,4 @@
-# dsh-delete-session
+# dsh-session-manager
 
 English | [中文](README.md)
 
@@ -24,7 +24,7 @@ Possibly the most feature-complete DSH session manager plugin out there: full se
 
 ## Screenshots
 
-The Settings "Session Manager" section (with archived group and trash):
+The Settings "Session Manager" section (workspace groups, row actions and trash):
 
 ![Session Manager settings section](assets/settings-section.png)
 
@@ -32,29 +32,33 @@ Conversation header shortcuts (Session Manager / Trash / Delete this session):
 
 ![Conversation header shortcuts](assets/header-buttons.png)
 
-The session management drawer (pin to keep open, outside-click to close):
+The session management drawer (workspace groups, pin to keep open, outside-click to close):
 
 ![Session management drawer](assets/session-drawer.png)
+
+The "Context compaction threshold" in General settings (17%–90% with slider scale):
+
+![Context compaction threshold](assets/general-settings.png)
 
 ## Install
 
 ### From GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-delete-session#v0.1.5'
+dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.1.5'
 ```
 
 ### From a local directory
 
 ```sh
-dsh plugin --profile web add /absolute/path/to/dsh-delete-session
+dsh plugin --profile web add /absolute/path/to/dsh-session-manager
 ```
 
 ### From a tarball
 
 ```sh
 pnpm pack
-dsh plugin --profile web add /absolute/path/to/dsh-delete-session-0.1.5.tgz
+dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.1.5.tgz
 ```
 
 After installing, **restart** `dsh web` (the host plugin and the served client bundle load at startup).

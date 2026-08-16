@@ -40,11 +40,11 @@ import {
   type TrashListResponse,
 } from '../contract.ts'
 
-export const name = 'dsh-delete-session/client'
+export const name = 'dsh-session-manager/client'
 export const inject = ['slots', 'locale', 'connection', 'sessions', 'workspaces']
 
 /** Locale namespace id registered under ctx.locale. */
-export const NS = 'dsh-delete-session'
+export const NS = 'dsh-session-manager'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {

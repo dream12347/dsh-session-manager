@@ -1,8 +1,8 @@
 import type { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client';
-export declare const name = "dsh-delete-session/client";
+export declare const name = "dsh-session-manager/client";
 export declare const inject: string[];
 /** Locale namespace id registered under ctx.locale. */
-export declare const NS = "dsh-delete-session";
+export declare const NS = "dsh-session-manager";
 declare module '@deepseek-ai/dsh-client-ui-slots' {
     interface LocaleNamespaceMap {
         /** The session-manager settings-section navigation label. */

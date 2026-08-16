@@ -45,7 +45,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 
-export const name = 'dsh-delete-session'
+export const name = 'dsh-session-manager'
 export const inject = ['webServer', 'sessionPersistence', 'workspaceRegistry', 'agents', 'storageDomain', 'loader']
 
 const ROUTE_PREFIX = '/dsh-delete-session'

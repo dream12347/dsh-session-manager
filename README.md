@@ -1,4 +1,4 @@
-# dsh-delete-session
+# dsh-session-manager
 
 [English](README.en.md) | 中文
 
@@ -24,7 +24,7 @@
 
 ## 截图
 
-设置页「会话管理」分栏（含已归档区与回收站）：
+设置页「会话管理」分栏（工作区分组、行操作与回收站）：
 
 ![设置页会话管理](assets/settings-section.png)
 
@@ -32,29 +32,33 @@
 
 ![对话顶部快捷入口](assets/header-buttons.png)
 
-会话管理抽屉（图钉固定、点击外部收起）：
+会话管理抽屉（工作区分组、图钉固定、点击外部收起）：
 
 ![会话管理抽屉](assets/session-drawer.png)
+
+通用设置「上下文压缩阈值」（17%–90%，滑块刻度）：
+
+![上下文压缩阈值](assets/general-settings.png)
 
 ## 安装
 
 ### 从 GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-delete-session#v0.1.5'
+dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.1.5'
 ```
 
 ### 从本地目录
 
 ```sh
-dsh plugin --profile web add /absolute/path/to/dsh-delete-session
+dsh plugin --profile web add /absolute/path/to/dsh-session-manager
 ```
 
 ### 从 tarball
 
 ```sh
 pnpm pack
-dsh plugin --profile web add /absolute/path/to/dsh-delete-session-0.1.5.tgz
+dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.1.5.tgz
 ```
 
 安装完成后**重启** `dsh web`（host 插件与客户端 bundle 需要重启加载）。

@@ -27,7 +27,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import { z } from 'zod';
-export declare const name = "dsh-delete-session";
+export declare const name = "dsh-session-manager";
 export declare const inject: string[];
 /** Maximum trash entries kept; the oldest overflow is purged automatically. */
 export declare const TRASH_LIMIT = 10;
