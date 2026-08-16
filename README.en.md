@@ -6,6 +6,8 @@ Possibly the most feature-complete DSH session manager plugin out there: full se
 
 <sub><span style="opacity:.6">Built independently with dsh + Deepseek-V4-Flash0731</span></sub>
 
+<sub><span style="opacity:.6">If you find it useful, please give it a ⭐ Star. Thank you!</span></sub>
+
 ## Features
 
 - A dedicated **Session Manager** section in Settings (a settings section, sibling to Notifications)

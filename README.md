@@ -6,6 +6,8 @@
 
 <sub><span style="opacity:.6">本项目由 dsh + Deepseek-V4-Flash0731 独立完成</span></sub>
 
+<sub><span style="opacity:.6">如果觉得有用，欢迎点个 ⭐ Star，谢谢支持！</span></sub>
+
 ## 功能
 
 - 设置页新增独立的「会话管理」分栏（与 Notifications 同级的设置分区）
