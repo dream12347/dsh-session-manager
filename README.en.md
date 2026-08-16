@@ -2,7 +2,7 @@
 
 English | [中文](README.md)
 
-Possibly the most feature-complete DSH session manager plugin out there: full session management for the DeepSeek Harness web UI, including delete (with a trash to restore or purge), restore archived sessions, recent-activity stats, continue/pause sessions, and revealing log folders — from a Settings section and the conversation header. No harness changes.
+Possibly the most feature-complete DSH session manager plugin out there: full session management for the DeepSeek Harness web UI, including delete (with a trash to restore or purge), restore archived sessions, recent-activity stats, continue/pause sessions, revealing log folders, workspace grouping and reordering, and a context compaction threshold — from a Settings section and the conversation header. No harness changes.
 
 <sub><span style="opacity:.6">Built independently with dsh + Deepseek-V4-Flash0731</span></sub>
 
