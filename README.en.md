@@ -1,8 +1,8 @@
 # dsh-session-manager
 
-English | [中文](README.md)
+English | [涓枃](README.md)
 
-Possibly the most feature-complete DSH session manager plugin out there: full session management for the DeepSeek Harness web UI, including delete (with a trash to restore or purge), restore archived sessions, recent-activity stats, continue/pause sessions, revealing log folders, workspace grouping and reordering, and a context compaction threshold — from a Settings section and the conversation header. No harness changes.
+Possibly the most feature-complete DSH session manager plugin out there: full session management for the DeepSeek Harness web UI, including delete (with a trash to restore or purge), restore archived sessions, recent-activity stats, continue/pause sessions, revealing log folders, workspace grouping and reordering, and a context compaction threshold 鈥?from a Settings section and the conversation header. No harness changes.
 
 <sub><span style="opacity:.6">Built independently with dsh + Deepseek-V4-Flash0731</span></sub>
 
@@ -13,11 +13,13 @@ Possibly the most feature-complete DSH session manager plugin out there: full se
 - **Trash**: deleted sessions move to the trash (keeps the most recent 10, the oldest is purged automatically), with **Restore** and **Delete permanently** actions
 - **Stats**: expand any session to see recent activity (turns / user messages / assistant messages / tool calls / activity window)
 - **Continue session**: open a session and close the panel; **Pause**: stop a running session's current turn
+- **Continue in new chat**: fork any session into a child conversation (official sessions.fork) and open it
+- **Unread / read markers** (shared `dsh.session-unread.v1` format): a status dot beside each row — blue for your manual unread mark, amber for the official pending-input state, green for the official done reminder, ring while running; clicking an official dot marks it read in place (no navigation), clicking the blue dot clears it, opening a session marks it read; the official sidebar shows the blue dot on the matching row too
 - **Folder**: reveal the session's log directory in the system file manager
 - **Delete this session**: a red button in the conversation header (left of Session log) to delete the current session
-- **Session Manager / Trash** header buttons: a self-drawn right drawer (pin to keep open, outside-click to close)
+- **Session Manager / Trash** header buttons: a self-drawn right drawer (pin to keep open, outside-click to close), with a "More" menu per row (stats / folder / fork)
 - **Workspace management**: sessions are grouped by workspace, sorted by last use within each group (toggle newest/oldest first); drag a workspace title to reorder (insert before/after, swap on the title, drag to the bottom to append); hovering a title shows **Move to top / Rename / Delete** buttons (delete follows the official definition: it only removes the workspace from the list — the folder and session logs are kept, and its sessions appear under Ungrouped)
-- **Context compaction threshold** (General settings): set at what fraction of the 1M-token model window the conversation context auto-compacts (17%–90%), keeping the most recent 16% verbatim; applies immediately on save (including already-open sessions) and persists to the agent preset
+- **Context compaction threshold** (General settings): set at what fraction of the 1M-token model window the conversation context auto-compacts (17%–90%), keeping the most recent 16% verbatim; applies to ALL sessions (any agent preset), effective immediately on save and re-applied after restarts
 - Delete restriction: only sessions **currently thinking** are protected; an open-but-idle session can be deleted
 - Subagent functionality is unaffected: their sessions are managed by DSH delegation, and this plugin does not offer a delete entry for them (end/clean them up within their parent session)
 - UI language follows the page language (Chinese / English)
@@ -36,7 +38,7 @@ The session management drawer (workspace groups, pin to keep open, outside-click
 
 ![Session management drawer](assets/session-drawer.png)
 
-The "Context compaction threshold" in General settings (17%–90% with slider scale):
+The "Context compaction threshold" in General settings (17%鈥?0% with slider scale):
 
 ![Context compaction threshold](assets/general-settings.png)
 
@@ -45,7 +47,7 @@ The "Context compaction threshold" in General settings (17%–90% with slider sc
 ### From GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.1.5'
+dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.1.6'
 ```
 
 ### From a local directory
@@ -58,7 +60,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-session-manager
 
 ```sh
 pnpm pack
-dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.1.5.tgz
+dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.1.6.tgz
 ```
 
 After installing, **restart** `dsh web` (the host plugin and the served client bundle load at startup).
@@ -68,7 +70,7 @@ After installing, **restart** `dsh web` (the host plugin and the served client b
 ### Settings section
 
 1. Open **Settings** (the gear icon at the bottom of the sidebar)
-2. A dedicated **Session Manager** section appears in the settings left navigation — click it
+2. A dedicated **Session Manager** section appears in the settings left navigation 鈥?click it
 3. The main list shows unarchived sessions; the **Archived sessions** collapsible area at the bottom lets you view, **restore**, or delete archived sessions
 4. Deleting moves a session to the **Trash** collapsible area (keeps the most recent 10)
 5. In the trash you can **Restore** (back to the list) or **Delete permanently** (irreversible)
@@ -79,8 +81,8 @@ After installing, **restart** `dsh web` (the host plugin and the served client b
 
 ### General settings: context compaction threshold
 
-1. Open **Settings** → **General**
-2. Find "Context compaction threshold": slider / input for 17%–90%
+1. Open **Settings** 鈫?**General**
+2. Find "Context compaction threshold": slider / input for 17%鈥?0%
 3. Saving applies immediately (including already-open sessions); the value is persisted into the current agent preset and survives restarts
 
 ### Conversation header shortcuts
@@ -98,7 +100,7 @@ Top right of any conversation (left of Session log):
 | Client | `src/client/index.ts` registers the dedicated section through the official `settings.section` slot, lists sessions (with the archived group) from the `useSessions` / `useWorkspaces` standard feeds, and calls the host route to delete; removed session ids are remembered in browser localStorage so a live session does not "resurrect" after refresh |
 
 - Deletion goes through the official archive channel first: the sidebar hides the session immediately
-- Workspace accounting (`sessionIds` slots / the archive set) is reconciled automatically on the next startup when the registry rebuilds its header index — no manual file editing
+- Workspace accounting (`sessionIds` slots / the archive set) is reconciled automatically on the next startup when the registry rebuilds its header index 鈥?no manual file editing
 - No system-prompt changes, no new model-facing tools: zero impact on tokens and model behavior
 
 ## Limitations

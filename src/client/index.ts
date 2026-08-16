@@ -14,6 +14,8 @@ import type { SessionListState, SessionSummary, SlotRegistry } from '@deepseek-a
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: brings the `settings.section` SlotMap declaration into this program.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: brings the `sidebar.footer.action` SlotMap declaration into this program.
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 // Type-only: brings the ctx.locale Context merge into this program.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: brings the conversation header slots' SlotMap declaration.
@@ -24,8 +26,8 @@ import type {} from '@deepseek-ai/dsh-session-title/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ConnectionHandle, HistoryEntry, SessionId as WireSessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { WorkspaceView } from '@deepseek-ai/dsh-api-remotes/client'
-import { Button, IconTrashOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { createElement, Fragment, useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
+import { Button, IconTrashOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { createElement, Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import {
   COMPACTION_THRESHOLD_ROUTE,
@@ -62,6 +64,97 @@ const REMOVED_KEY = 'dsh-delete-session.removed'
 /** localStorage key remembering session titles at delete time, so the trash
  * can still show a name once the artifact (and the list row) is gone. */
 const TITLES_KEY = 'dsh-delete-session.titles'
+/** localStorage key for the unread marker set (dsh.session-unread.v1). */
+const UNREAD_KEY = 'dsh.session-unread.v1'
+
+// Module-level unread state shared by the settings section and the drawer.
+const unreadState: { ids: Set<string> } = { ids: loadUnread() }
+const unreadListeners = new Set<() => void>()
+/** Storage shape: { version: 1, ids: string[] } — the shared format of the
+ * dsh.session-unread.v1 key (also used by other session-manager plugins), so
+ * marks made in one plugin show up in the others. Legacy bare arrays written
+ * by earlier builds are still accepted. */
+function loadUnread(): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(UNREAD_KEY)
+    if (raw === null) return new Set()
+    const parsed = JSON.parse(raw) as unknown
+    const ids = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray((parsed as { ids?: unknown }).ids) ? (parsed as { ids: unknown[] }).ids : []
+    return new Set(ids.filter((id): id is string => typeof id === 'string' && id !== ''))
+  } catch {
+    // Storage unavailable (private mode etc.): fall back to an empty set.
+  }
+  return new Set()
+}
+function persistUnread(): void {
+  try {
+    window.localStorage.setItem(UNREAD_KEY, JSON.stringify({ version: 1, ids: [...unreadState.ids] }))
+  } catch {
+    // Storage unavailable: in-memory marking still works for this session.
+  }
+}
+function setUnread(sessionId: string, value: boolean): void {
+  const next = new Set(unreadState.ids)
+  if (value) next.add(sessionId)
+  else next.delete(sessionId)
+  unreadState.ids = next
+  persistUnread()
+  unreadListeners.forEach((listener) => listener())
+}
+function markRead(sessionId: string): void {
+  if (!unreadState.ids.has(sessionId)) return
+  setUnread(sessionId, false)
+}
+/** Subscribe the calling component to the module-level unread state. */
+function useUnread(): Set<string> {
+  const [, force] = useState(0)
+  useEffect(() => {
+    const listener = () => force((value) => value + 1)
+    unreadListeners.add(listener)
+    return () => {
+      unreadListeners.delete(listener)
+    }
+  }, [])
+  return unreadState.ids
+}
+
+/** Official status-dot state for a row: running ring outranks, then the
+ * MANUAL unread mark (blue, ours), then the official amber pending-user
+ * interaction, then the green done reminder. Mirrors the sidebar dots.
+ * Clicking an OFFICIAL dot opens the session (the official "read" action:
+ * select clears the green reminder); clicking the blue one clears the mark. */
+type RowStatusDot = 'ongoing' | 'blue' | 'amber' | 'green' | null
+function rowStatusDot(
+  session: { running?: boolean; pendingInteraction?: unknown; completed?: boolean },
+  manuallyUnread: boolean,
+): RowStatusDot {
+  if (session.running === true) return 'ongoing'
+  if (manuallyUnread) return 'blue'
+  if (session.pendingInteraction !== undefined) return 'amber'
+  if (session.completed === true) return 'green'
+  return null
+}
+/** Render the official StateDot for a status, or the clickable read placeholder. */
+function renderStatusDot(status: RowStatusDot, title: string, onToggle: () => void): ReactElement {
+  return createElement('button', {
+    type: 'button',
+    className: 'dsh-delete-session__unread-dot',
+    title,
+    'aria-label': title,
+    onClick: (e: MouseEvent) => {
+      e.stopPropagation()
+      onToggle()
+    },
+  },
+    status === null
+      ? createElement('span', { className: 'dsh-delete-session__unread-dot-placeholder' })
+      : status === 'blue'
+        ? createElement('span', { className: 'dsh-delete-session__unread-dot-blue' })
+        : createElement(StateDot, { state: status === 'ongoing' ? 'ongoing' : status === 'amber' ? 'warning' : 'done', size: 10 }),
+  )
+}
 
 function loadRemoved(): Set<string> {
   try {
@@ -399,6 +492,48 @@ const STYLE = `
   border-color: #ef4444;
   color: #ef4444;
 }
+/* Per-row "More" popover menu (self-drawn). */
+.dsh-delete-session__more-wrap {
+  position: relative;
+  flex: none;
+}
+.dsh-delete-session__more-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 60;
+  min-width: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--dsw-alias-bg-base, #ffffff);
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .14);
+}
+.dsh-delete-session__more-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, #0f1115);
+  font-size: 12px;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dsh-delete-session__more-item:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, .06));
+}
+.dsh-delete-session__more-item:disabled {
+  opacity: .5;
+  cursor: default;
+}
 .dsh-delete-session__list {
   list-style: none;
   margin: 0;
@@ -420,11 +555,59 @@ const STYLE = `
   min-width: 0;
 }
 .dsh-delete-session__row-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   font-size: 13px;
   line-height: 1.4;
+}
+.dsh-delete-session__row-title-text {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.dsh-delete-session__unread-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.dsh-delete-session__unread-dot-placeholder {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-label-tertiary, #9ca3af);
+}
+.dsh-delete-session__unread-dot-blue {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-business-primary, #3b82f6);
+}
+.dsh-delete-session__unread-dot:hover .dsh-delete-session__unread-dot-placeholder {
+  transform: scale(1.15);
+}
+/* Blue unread dot inserted next to OFFICIAL sidebar session titles. */
+.dsh-session-manager__row-unread-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-business-primary, #3b82f6);
+  vertical-align: middle;
+  flex: none;
+  cursor: pointer;
 }
 .dsh-delete-session__row-meta {
   color: var(--dsw-alias-label-tertiary, #9ca3af);
@@ -681,6 +864,12 @@ function stringsOf() {
         pause: '暂停',
         paused: '已暂停会话',
         pauseFailed: '暂停失败',
+        fork: '新聊天中继续',
+        forkFailed: '创建子会话失败',
+        forkUnavailable: '当前回合尚未结束，无法在此处切分',
+        more: '更多',
+        unread: '标记为未读',
+        read: '标记为已读',
         stats: '统计',
         statsLoading: '统计加载中…',
         statsFailed: '统计加载失败',
@@ -713,7 +902,7 @@ function stringsOf() {
         workspaceDelete: '删除',
         workspaceDeleteConfirm: '将把「{title}」从工作区列表中移除。文件夹与会话记录会保留，其会话将显示在「未分组」下。',
         compactionThresholdTitle: '上下文压缩阈值',
-        compactionThresholdDesc: '对话上下文用到该比例时自动压缩（最低 17%）。每次压缩会保留最近 16% 的原文，其余折叠为摘要。保存后立即生效（含已打开的会话）。',
+        compactionThresholdDesc: '对话上下文用到该比例时自动压缩（最低 17%）。每次压缩会保留最近 16% 的原文，其余折叠为摘要。对所有会话（任意 Agent 预设）生效：保存后立即生效并持久化，重启后自动应用。',
         compactionSave: '保存',
         compactionSaved: '已保存',
         compactionSaveFailed: '保存失败',
@@ -758,6 +947,12 @@ function stringsOf() {
         pause: 'Pause',
         paused: 'Session paused',
         pauseFailed: 'Failed to pause',
+        fork: 'Continue in new chat',
+        forkFailed: 'Failed to fork session',
+        forkUnavailable: 'the current turn is still open; it cannot be forked here',
+        more: 'More',
+        unread: 'Mark as unread',
+        read: 'Mark as read',
         stats: 'Stats',
         statsLoading: 'Loading stats…',
         statsFailed: 'Failed to load stats',
@@ -790,7 +985,7 @@ function stringsOf() {
         workspaceDelete: 'Delete',
         workspaceDeleteConfirm: 'This removes "{title}" from the workspace list. The folder and session logs will be kept. Its sessions will appear under Ungrouped.',
         compactionThresholdTitle: 'Context compaction threshold',
-        compactionThresholdDesc: 'Compacts automatically when the conversation context reaches this fraction of the 1M-token model window (minimum 17%). Each compaction keeps the most recent 16% verbatim and folds the rest into a summary. Applies immediately on save, including already-open sessions.',
+        compactionThresholdDesc: 'Compacts automatically when the conversation context reaches this fraction of the 1M-token model window (minimum 17%). Each compaction keeps the most recent 16% verbatim and folds the rest into a summary. Applies to ALL sessions (any agent preset): effective immediately on save, persisted, and re-applied automatically after a restart.',
         compactionSave: 'Save',
         compactionSaved: 'Saved',
         compactionSaveFailed: 'Save failed',
@@ -815,6 +1010,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
   const [notice, setNotice] = useState<Notice | null>(null)
   const [statsId, setStatsId] = useState<string | null>(null)
   const [stats, setStats] = useState<StatsState | null>(null)
+  const unread = useUnread()
   const [newestFirst, setNewestFirst] = useState(true)
   const [dragWorkspaceId, setDragWorkspaceId] = useState<string | null>(null)
   // Drop slot: 'before:<id>' inserts before that workspace, 'end' appends.
@@ -1172,12 +1368,35 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
     }
   }, [api, statsId])
 
-  // Continue a session: open it through the browser sessions service and
-  // close the settings panel so the user lands directly in the conversation.
+  // Continue a session: mark it read, open it through the browser sessions
+  // service and close the settings panel so the user lands in the
+  // conversation.
   const handleContinue = useCallback((sessionId: string): void => {
+    markRead(sessionId)
     sessions.open(sessionId as SessionId)
     close()
   }, [sessions, close])
+
+  // Fork the session into a new child conversation (official sessions.fork,
+  // cut at the last completed turn), then open the child and close the panel.
+  const handleFork = useCallback(async (sessionId: string): Promise<void> => {
+    setBusyId(sessionId)
+    setNotice(null)
+    try {
+      const response = await api.sessions.fork({ sessionId: sessionId as WireSessionId })
+      if (!response.result.ok) throw new Error(response.result.error?.code ?? 'fork-failed')
+      const childId = response.result.value.sessionId
+      sessions.open(childId as SessionId)
+      close()
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      const friendly = code === 'fork-unavailable' ? strings.forkUnavailable : ''
+      const suffix = friendly !== '' ? ` (${friendly})` : code !== '' ? ` (${code})` : ''
+      showNotice({ kind: 'error', text: strings.forkFailed + suffix })
+    } finally {
+      setBusyId(null)
+    }
+  }, [api, sessions, close, strings, showNotice])
 
   // Pause a running session: cancel its current turn through the host.
   const handlePause = useCallback(async (sessionId: string): Promise<void> => {
@@ -1271,7 +1490,41 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       'data-stats-open': statsOpen || undefined,
     },
       createElement('div', { className: 'dsh-delete-session__row-main' },
-        createElement('div', { className: 'dsh-delete-session__row-title', title: session.displayTitle }, session.displayTitle),
+        createElement('div', { className: 'dsh-delete-session__row-title', title: session.displayTitle },
+          createElement('span', { className: 'dsh-delete-session__row-title-text' }, session.displayTitle),
+          (() => {
+            const dotStatus = rowStatusDot(session, unread.has(session.id))
+            return renderStatusDot(
+              dotStatus,
+              dotStatus !== null ? strings.read : strings.unread,
+              () => {
+                if (dotStatus === 'amber' || dotStatus === 'green') {
+                  // Dismiss the OFFICIAL dot in place (no navigation): delete
+                  // the manager's private marker and refresh the shared list
+                  // store, so the sidebar dot disappears on both surfaces.
+                  try {
+                    const manager = (sessions as unknown as {
+                      manager?: {
+                        completedNotifications?: Set<string>
+                        pendingInteractions?: Map<string, unknown>
+                        notifier?: { markDirty(): void }
+                      }
+                    }).manager
+                    const changed = dotStatus === 'green'
+                      ? (manager?.completedNotifications?.delete(session.id) ?? false)
+                      : (manager?.pendingInteractions?.delete(session.id) ?? false)
+                    if (changed) manager?.notifier?.markDirty()
+                  } catch {
+                    // Best-effort; the next list refresh re-baselines.
+                  }
+                  setUnread(session.id, false)
+                } else {
+                  setUnread(session.id, dotStatus === null)
+                }
+              },
+            )
+          })(),
+        ),
         createElement('div', { className: 'dsh-delete-session__row-meta', title: metaParts.join(' · ') }, metaParts.join(' · ')),
         renderStats(session.id),
       ),
@@ -1283,6 +1536,15 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         title: isRunning ? strings.running : strings.continue,
         onClick: () => handleContinue(session.id),
         children: strings.continue,
+      }),
+      createElement(Button, {
+        className: 'dsh-row-action',
+        variant: 'ghost',
+        size: 'sm',
+        disabled: isRunning || busy,
+        title: strings.fork,
+        onClick: () => void handleFork(session.id),
+        children: strings.fork,
       }),
       isRunning && createElement(Button, {
         className: 'dsh-row-action',
@@ -1436,18 +1698,105 @@ export function apply(ctx: ClientContext): void {
   style.textContent = STYLE
   document.head.append(style)
 
-  // Locale dictionaries: the settings-section navigation label.
-  ctx.effect(() => ctx.locale.register(NS, { zh: NAV_ZH, en: NAV_EN }), 'dsh-delete-session: dictionaries')
-  const t = ctx.locale.bind(NS)
-
   // The wire client: official session.history RPC for stats folding.
   const { api } = ctx.get('connection') as ConnectionHandle
   // Resolve services at the ROOT context (apply time): the slot `inject:`
   // callbacks are evaluated inside the slot's own cordis scope, where these
   // services are not declared — accessing ctx.<service> there throws
-  // `cannot get property "... " without inject`.
+  // `cannot get property "... " without inject`. Declared BEFORE any
+  // ctx.effect callback (those run synchronously) to avoid TDZ crashes.
   const sessions = ctx.sessions
   const workspaces = ctx.workspaces
+
+  // Locale dictionaries: the settings-section navigation label.
+  ctx.effect(() => ctx.locale.register(NS, { zh: NAV_ZH, en: NAV_EN }), 'dsh-delete-session: dictionaries')
+
+  // Mark read when the OFFICIAL selection (sidebar click / any navigation)
+  // moves to a manually-unread session.
+  ctx.effect(() => {
+    let previous: string | undefined
+    const check = (): void => {
+      const current = sessions.list.getSnapshot().current
+      if (current !== undefined && current !== previous && unreadState.ids.has(current)) {
+        markRead(current)
+      }
+      previous = current
+    }
+    check()
+    const unsubscribe = sessions.list.subscribe(check)
+    return () => unsubscribe()
+  }, 'dsh-session-manager: selection auto-read')
+
+  // Decorate OFFICIAL sidebar session rows with the blue manual-unread dot.
+  // Official rows carry no session id, so rows are matched by their title
+  // text (titles derive from the same source and are unique in practice).
+  ctx.effect(() => {
+    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return
+    const DOT_CLASS = 'dsh-session-manager__row-unread-dot'
+    let frame = 0
+    const decorate = (): void => {
+      frame = 0
+      const snapshot = sessions.list.getSnapshot()
+      const idByTitle = new Map<string, string>()
+      for (const id of snapshot.ids) {
+        const summary = snapshot.byId[id]
+        if (summary !== undefined && !summary.blank) idByTitle.set(summary.displayTitle, id)
+      }
+      for (const row of document.querySelectorAll<HTMLElement>('[role="treeitem"]')) {
+        let matchedId: string | undefined
+        let titleSpan: HTMLElement | null = null
+        for (const span of row.querySelectorAll<HTMLElement>('span')) {
+          const id = idByTitle.get(span.textContent?.trim() ?? '')
+          if (id !== undefined) {
+            matchedId = id
+            titleSpan = span
+            break
+          }
+        }
+        if (matchedId === undefined || titleSpan === null) continue
+        // Place the blue dot beside the official status slot (before the
+        // title): it reads as an extra status color alongside the official
+        // amber/green/ring dots.
+        const existing = row.querySelector<HTMLElement>(`.${DOT_CLASS}`)
+        if (unreadState.ids.has(matchedId)) {
+          if (existing === null) {
+            const dot = document.createElement('span')
+            dot.className = DOT_CLASS
+            dot.dataset.sessionId = matchedId
+            dot.title = stringsOf().read
+            titleSpan.parentNode?.insertBefore(dot, titleSpan)
+          }
+        } else if (existing !== null) {
+          existing.remove()
+        }
+      }
+    }
+    const schedule = (): void => {
+      if (frame === 0) frame = window.requestAnimationFrame(decorate)
+    }
+    decorate()
+    const observer = new MutationObserver(schedule)
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
+    const onDocClick = (event: MouseEvent): void => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      const dot = target.closest(`.${DOT_CLASS}`)
+      if (dot === null) return
+      const id = (dot as HTMLElement).dataset.sessionId
+      if (id !== undefined && id !== '') {
+        event.stopPropagation()
+        setUnread(id, false)
+      }
+    }
+    document.addEventListener('click', onDocClick, true)
+    return () => {
+      observer.disconnect()
+      document.removeEventListener('click', onDocClick, true)
+      if (frame !== 0) window.cancelAnimationFrame(frame)
+      document.querySelectorAll(`.${DOT_CLASS}`).forEach((dot) => dot.remove())
+    }
+  }, 'dsh-session-manager: sidebar unread dots')
+  const t = ctx.locale.bind(NS)
 
   // A General-settings preference row: the context compaction threshold of
   // the official `dsh-compaction-basic` plugin. It reads the current value
@@ -1814,14 +2163,23 @@ interface DrawerRow {
   running: boolean
   blank: boolean
   archived: boolean
+  /** Official pending-user-interaction state (sidebar amber dot). */
+  pendingInteraction?: unknown
+  /** Official "finished while unopened" reminder (sidebar green dot). */
+  completed?: boolean
 }
 
 /** The right drawer: full session management (list, archived, trash). */
 function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
   const state = useDrawerState()
   const strings = stringsOf()
-  const [rows, setRows] = useState<DrawerRow[] | null>(null)
+  // Subscribe to the official session store (same source the sidebar uses):
+  // running / pendingInteraction / completed stay live and in sync.
+  const subscribe = useCallback((fn: () => void): (() => void) => sessions.list.subscribe(fn), [sessions])
+  const getSnapshot = useCallback(() => sessions.list.getSnapshot(), [sessions])
+  const list = useSyncExternalStore(subscribe, getSnapshot)
   const [workspaces, setWorkspaces] = useState<WorkspaceView[]>([])
+  const [archivedSet, setArchivedSet] = useState<ReadonlySet<string>>(new Set())
   const [loadError, setLoadError] = useState(false)
   const [trash, setTrash] = useState<TrashEntry[] | null>(null)
   const [trashLimit, setTrashLimit] = useState(10)
@@ -1831,6 +2189,8 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [statsId, setStatsId] = useState<string | null>(null)
   const [stats, setStats] = useState<StatsState | null>(null)
+  const unread = useUnread()
+  const [moreOpenId, setMoreOpenId] = useState<string | null>(null)
   const [newestFirst, setNewestFirst] = useState(true)
   const [dragWorkspaceId, setDragWorkspaceId] = useState<string | null>(null)
   // Drop slot: 'before:<id>' inserts before that workspace, 'end' appends.
@@ -1839,27 +2199,45 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
   const dropSlotRef = useRef<string | null>(null)
   const groupsRef = useRef<typeof activeGroups>([])
 
+  // Rows derive from the official useSessions store (same source as the
+  // sidebar): live running/pendingInteraction/completed stay in sync.
+  const rows: DrawerRow[] | null = list.phase === 'ready'
+    ? list.ids
+      .map((id) => list.byId[id])
+      .filter((summary) => !summary.blank)
+      .map((summary) => ({
+        sessionId: summary.id,
+        title: summary.displayTitle,
+        cwd: summary.cwd,
+        updatedAt: summary.updatedAt,
+        running: summary.running,
+        blank: summary.blank,
+        archived: archivedSet.has(summary.id),
+        pendingInteraction: summary.pendingInteraction,
+        completed: summary.completed,
+      }))
+    : null
+
+  // Close the per-row "More" menu on outside pointer-down.
+  useEffect(() => {
+    if (moreOpenId === null) return
+    const onPointerDown = (event: MouseEvent): void => {
+      if (!(event.target instanceof Element)) return
+      if (event.target.closest('.dsh-delete-session__more-wrap') !== null) return
+      setMoreOpenId(null)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [moreOpenId])
+
   const load = useCallback(async (): Promise<void> => {
     try {
-      const [sessionsRes, workspacesRes, trashRes] = await Promise.all([
-        api.sessions.list({}),
+      const [workspacesRes, trashRes] = await Promise.all([
         api.workspace.list({}),
         fetch(TRASH_ROUTE),
       ])
-      if (sessionsRes.result.ok && workspacesRes.result.ok) {
-        const archived = new Set(workspacesRes.result.value.archivedSessionIds)
-        // Blank sessions (created, never messaged) are hidden like the sidebar.
-        setRows(sessionsRes.result.value.items
-          .filter((summary) => !summary.blank)
-          .map((summary) => ({
-            sessionId: summary.sessionId,
-            title: summary.projections?.values.title ?? summary.sessionId,
-            cwd: summary.cwd,
-            updatedAt: summary.updatedAt,
-            running: summary.running,
-            blank: summary.blank,
-            archived: archived.has(summary.sessionId),
-          })))
+      if (workspacesRes.result.ok) {
+        setArchivedSet(new Set(workspacesRes.result.value.archivedSessionIds))
         setWorkspaces(workspacesRes.result.value.items)
         setLoadError(false)
       } else {
@@ -1988,9 +2366,30 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
   }, [strings, postAction])
 
   const handleContinue = useCallback((sessionId: string): void => {
+    markRead(sessionId)
     sessions.open(sessionId as SessionId)
     setDrawer({ open: false })
   }, [sessions])
+
+  // Fork the session into a new child conversation, then open the child and
+  // close the drawer.
+  const handleFork = useCallback(async (sessionId: string): Promise<void> => {
+    setBusyId(sessionId)
+    try {
+      const response = await api.sessions.fork({ sessionId: sessionId as WireSessionId })
+      if (!response.result.ok) throw new Error(response.result.error?.code ?? 'fork-failed')
+      const childId = response.result.value.sessionId
+      sessions.open(childId as SessionId)
+      setDrawer({ open: false })
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      const friendly = code === 'fork-unavailable' ? strings.forkUnavailable : ''
+      const suffix = friendly !== '' ? ` (${friendly})` : code !== '' ? ` (${code})` : ''
+      showAlert(strings.forkFailed + suffix)
+    } finally {
+      setBusyId(null)
+    }
+  }, [api, sessions, strings, showAlert])
 
   const renderStatsBlock = (sessionId: string): ReactElement | null => {
     if (statsId !== sessionId || stats === null) return null
@@ -2031,7 +2430,41 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
       'data-archived': row.archived || undefined,
     },
       createElement('div', { className: 'dsh-delete-session__row-main' },
-        createElement('div', { className: 'dsh-delete-session__row-title', title: row.title }, row.title),
+        createElement('div', { className: 'dsh-delete-session__row-title', title: row.title },
+          createElement('span', { className: 'dsh-delete-session__row-title-text' }, row.title),
+          (() => {
+            const dotStatus = rowStatusDot(row, unread.has(row.sessionId))
+            return renderStatusDot(
+              dotStatus,
+              dotStatus !== null ? strings.read : strings.unread,
+              () => {
+                if (dotStatus === 'amber' || dotStatus === 'green') {
+                  // Dismiss the OFFICIAL dot in place (no navigation): delete
+                  // the manager's private marker and refresh the shared list
+                  // store, so the sidebar dot disappears on both surfaces.
+                  try {
+                    const manager = (sessions as unknown as {
+                      manager?: {
+                        completedNotifications?: Set<string>
+                        pendingInteractions?: Map<string, unknown>
+                        notifier?: { markDirty(): void }
+                      }
+                    }).manager
+                    const changed = dotStatus === 'green'
+                      ? (manager?.completedNotifications?.delete(row.sessionId) ?? false)
+                      : (manager?.pendingInteractions?.delete(row.sessionId) ?? false)
+                    if (changed) manager?.notifier?.markDirty()
+                  } catch {
+                    // Best-effort; the next list refresh re-baselines.
+                  }
+                  setUnread(row.sessionId, false)
+                } else {
+                  setUnread(row.sessionId, dotStatus === null)
+                }
+              },
+            )
+          })(),
+        ),
         createElement('div', { className: 'dsh-delete-session__row-meta', title: metaParts.join(' · ') }, metaParts.join(' · ')),
         renderStatsBlock(row.sessionId),
       ),
@@ -2040,20 +2473,47 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
         variant: 'outline', size: 'sm', disabled: row.running || busy,
         onClick: () => handleContinue(row.sessionId), children: strings.continue,
       }),
+      createElement('span', { className: 'dsh-delete-session__more-wrap' },
+        createElement(Button, {
+          className: 'dsh-row-action',
+          variant: 'outline', size: 'sm', disabled: busy,
+          onClick: () => setMoreOpenId(moreOpenId === row.sessionId ? null : row.sessionId),
+          children: strings.more,
+        }),
+        moreOpenId === row.sessionId && createElement('div', { className: 'dsh-delete-session__more-menu' },
+          createElement('button', {
+            type: 'button',
+            className: 'dsh-delete-session__more-item',
+            disabled: busy,
+            onClick: () => {
+              setMoreOpenId(null)
+              void handleStats(row.sessionId)
+            },
+          }, strings.stats),
+          createElement('button', {
+            type: 'button',
+            className: 'dsh-delete-session__more-item',
+            disabled: busy,
+            onClick: () => {
+              setMoreOpenId(null)
+              void handleOpenFolder(row.sessionId)
+            },
+          }, strings.folder),
+          createElement('button', {
+            type: 'button',
+            className: 'dsh-delete-session__more-item',
+            disabled: row.running || busy,
+            onClick: () => {
+              setMoreOpenId(null)
+              void handleFork(row.sessionId)
+            },
+          }, strings.fork),
+        ),
+      ),
       row.archived && createElement(Button, {
         className: 'dsh-row-action',
         variant: 'outline', size: 'sm', disabled: busy,
         onClick: () => void handleRestore(row.sessionId, row.title), children: strings.restore,
-      }),
-      createElement(Button, {
-        className: 'dsh-row-action',
-        variant: 'outline', size: 'sm', disabled: busy,
-        onClick: () => void handleStats(row.sessionId), children: strings.stats,
-      }),
-      createElement(Button, {
-        className: 'dsh-row-action',
-        variant: 'outline', size: 'sm', disabled: busy,
-        onClick: () => void handleOpenFolder(row.sessionId), children: strings.folder,
       }),
       createElement(Button, {
         className: 'dsh-row-action dsh-row-action--danger',

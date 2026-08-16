@@ -62,12 +62,16 @@ const trashEntrySchema = z.object({
 })
 export type TrashEntry = z.infer<typeof trashEntrySchema>
 
-/** The plugin's storage domain: one global array of trash entries. */
+/** The plugin's storage domain: trash entries plus the compaction threshold setting. */
 const trashDomainSpec = defineDomain({
   name: 'dsh_delete_session',
   version: 1,
   global: {
-    schema: z.object({ entries: z.array(trashEntrySchema) }),
+    schema: z.object({
+      entries: z.array(trashEntrySchema),
+      // User-set compaction threshold (0.17–0.9); absent = not configured.
+      thresholdRatio: z.number().optional(),
+    }),
     initial: { entries: [] },
   },
   tables: {},
@@ -290,6 +294,45 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
         ctx.logger.warn('[dsh-session-manager] trash persist failed:', error)
         throw error
       })
+
+    // The user-set compaction threshold, persisted in this plugin's storage
+    // domain. Loaded at startup; updated on save. It applies to EVERY session
+    // regardless of agent preset: each step-boundary enforcement below forces
+    // the running engine's config to this value.
+    let configuredThreshold: number | null = (trash.global.get() as { thresholdRatio?: number }).thresholdRatio ?? null
+    const setConfiguredThreshold = async (ratio: number): Promise<void> => {
+      configuredThreshold = ratio
+      const current = trash.global.get() as { entries: TrashEntry[]; thresholdRatio?: number }
+      await trash.global.set({ ...current, thresholdRatio: ratio }).catch((error) => {
+        ctx.logger.warn('[dsh-session-manager] threshold persist failed:', error)
+        throw error
+      })
+    }
+
+    // Enforce the configured threshold on every session's compaction engine
+    // at each step boundary, whatever preset the session uses. The engine
+    // reads `this.config` per decision, so the assignment is enough. Silent
+    // and cheap (one comparison); never blocks the step.
+    {
+      const presets = ctx.get('agentPresets') as
+        | { serviceFor?(agent: { ctx: Context }, name: string): unknown }
+        | undefined
+      ctx.on('agent/pre-step', async ({ agent }, next) => {
+        try {
+          if (configuredThreshold !== null && presets?.serviceFor !== undefined) {
+            const engine = presets.serviceFor(agent, 'compaction') as
+              | { config?: { thresholdRatio?: unknown } }
+              | undefined
+            if (engine?.config !== undefined && engine.config.thresholdRatio !== configuredThreshold) {
+              engine.config.thresholdRatio = configuredThreshold
+            }
+          }
+        } catch {
+          // Never let enforcement break a step.
+        }
+        return next()
+      }, { prepend: true })
+    }
 
     // POST /dsh-session-manager/delete — soft delete into the trash.
     ctx.webServer.register({
@@ -536,24 +579,28 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
     })
 
     // GET/POST /dsh-session-manager/compaction-threshold — read or update the
-    // compaction threshold in the default agent preset's composition file.
-    // Web mode disables the root compaction entry; the live engine runs in
-    // the preset's isolated realm, so this is where the value takes effect
-    // (per-preset, i.e. per-session).
+    // user-set threshold. The value is persisted in this plugin's storage
+    // domain, written into the default preset's composition file as well, and
+    // enforced on EVERY session's engine at each step boundary (any preset,
+    // created at any time, survives restarts).
     ctx.webServer.register({
       kind: 'exact',
       path: `${ROUTE_PREFIX}/compaction-threshold`,
       handler: async (req, res) => {
         if (req.method === 'GET') {
-          try {
-            const name = defaultPresetName(ctx)
-            const content = await readFile(presetPath(name), 'utf8')
-            const ratio = parsePresetRatio(content) ?? 0.8
-            respond(res, 200, { ok: true, ratio })
-          } catch (error) {
-            ctx.logger.warn('[dsh-session-manager] compaction-threshold read failed:', error)
-            respond(res, 500, { ok: false, error: 'compaction-threshold-read-failed' })
+          // Storage is authoritative once set; before the first save, fall
+          // back to the default preset file so an existing value shows up.
+          let ratio = configuredThreshold
+          if (ratio === null) {
+            try {
+              const name = defaultPresetName(ctx)
+              const content = await readFile(presetPath(name), 'utf8')
+              ratio = parsePresetRatio(content) ?? 0.8
+            } catch {
+              ratio = 0.8
+            }
           }
+          respond(res, 200, { ok: true, ratio })
           return
         }
         if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
@@ -569,10 +616,12 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
           return respond(res, 400, { ok: false, error: 'invalid-ratio' })
         }
         try {
+          await setConfiguredThreshold(ratio)
+          // Keep the default preset's file in sync (file-level persistence).
           const name = defaultPresetName(ctx)
           await writePresetComposition(ctx, name, ratio)
-          // Already-open sessions share one engine per preset: update it now
-          // so the new threshold applies without a restart.
+          // Apply to already-open sessions immediately (the step-boundary
+          // enforcement below is the standing guarantee for everything else).
           await applyThresholdToLiveAgents(ctx, ratio)
           respond(res, 200, { ok: true })
         } catch (error) {
