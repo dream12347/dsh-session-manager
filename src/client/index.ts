@@ -280,6 +280,18 @@ const STYLE = `
   accent-color: var(--dsw-alias-state-info-border, #4d6bfe);
   cursor: pointer;
 }
+.dsh-delete-session__general-slider-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dsh-delete-session__general-slider-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--dsw-alias-label-tertiary, #9ca3af);
+}
 .dsh-delete-session__general-input-wrap {
   display: flex;
   align-items: center;
@@ -1691,21 +1703,28 @@ function CompactionThresholdRow(_props: { children?: never }): ReactElement {
         }, saveState === 'saved' ? strings.compactionSaved : strings.compactionSave),
       ),
     ),
-    createElement('input', {
-      className: 'dsh-delete-session__general-slider',
-      type: 'range',
-      min: COMPACTION_MIN_PERCENT,
-      max: COMPACTION_MAX_PERCENT,
-      step: 1,
-      value: slider,
-      'aria-label': strings.compactionThresholdTitle,
-      onChange: (e: InputEvent) => {
-        const next = Number((e.currentTarget as HTMLInputElement).value)
-        setSlider(next)
-        setDraft('')
-        setTouched(true)
-      },
-    }),
+    createElement('div', { className: 'dsh-delete-session__general-slider-wrap' },
+      createElement('input', {
+        className: 'dsh-delete-session__general-slider',
+        type: 'range',
+        min: COMPACTION_MIN_PERCENT,
+        max: COMPACTION_MAX_PERCENT,
+        step: 1,
+        value: slider,
+        'aria-label': strings.compactionThresholdTitle,
+        onChange: (e: InputEvent) => {
+          const next = Number((e.currentTarget as HTMLInputElement).value)
+          setSlider(next)
+          setDraft('')
+          setTouched(true)
+        },
+      }),
+      createElement('div', { className: 'dsh-delete-session__general-slider-scale' },
+        createElement('span', {}, `${COMPACTION_MIN_PERCENT}%`),
+        createElement('span', {}, `${Math.floor((COMPACTION_MIN_PERCENT + COMPACTION_MAX_PERCENT) / 2)}%`),
+        createElement('span', {}, `${COMPACTION_MAX_PERCENT}%`),
+      ),
+    ),
   )
 }
 
