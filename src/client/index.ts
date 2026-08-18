@@ -1473,10 +1473,9 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
 
   const renderRow = (session: SessionSummary, isArchived: boolean): ReactElement => {
     const isCurrent = !isArchived && session.id === list.current
-    const isSubagent = session.origin === 'subagent'
     const isRunning = session.running
     const busy = busyId === session.id
-    const protectedReason = isCurrent ? strings.current : isSubagent ? 'subagent' : isRunning ? strings.running : ''
+    const protectedReason = isCurrent ? strings.current : isRunning ? strings.running : ''
     const metaParts = [session.cwd ?? strings.noCwd]
     if (isArchived) metaParts.push(strings.archived)
     if (protectedReason !== '' && !isCurrent) metaParts.push(protectedReason)
@@ -1583,7 +1582,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         variant: 'outline',
         size: 'sm',
         icon: createElement(IconTrashOutline16, { size: 16 }),
-        disabled: isSubagent || isRunning || busy,
+        disabled: isRunning || busy,
         title: protectedReason !== '' && !isCurrent ? protectedReason : strings.delete,
         onClick: () => void handleDelete(session.id, session.displayTitle),
         children: busy ? strings.deleting : strings.delete,

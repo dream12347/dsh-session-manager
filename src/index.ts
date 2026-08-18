@@ -8,8 +8,8 @@
  *   GET  /dsh-session-manager/trash                          -> list trash entries
  *
  * Delete flow (soft delete):
- *  1. Resolve the persisted session; refuse subagent-owned sessions and
- *     sessions whose agent is actively running a turn.
+ *  1. Resolve the persisted session; refuse sessions whose agent is actively
+ *     running a turn.
  *  2. Move the session's artifact directory into the plugin trash folder
  *     (a blank session without an artifact just records the entry).
  *  3. Archive the session so every client hides the row immediately.
@@ -50,7 +50,12 @@ export const inject = ['webServer', 'sessionPersistence', 'workspaceRegistry', '
 
 const ROUTE_PREFIX = '/dsh-session-manager'
 const MAX_BODY_BYTES = 64 * 1024
-const SESSION_ID_RE = /^session-[0-9a-fA-F-]{8,}$/
+// Official session ids come in three shapes: `session-<uuid>` (web UI,
+// created via the api), `session-<n>` (store-minted, e.g. forks created
+// without an explicit id) and `<uuid>` (subagent children, created as
+// `SessionId(randomUUID())`). Accept all three; keep the charset tight
+// (hex + dashes only) because the id is joined into a trash path.
+const SESSION_ID_RE = /^[0-9a-fA-F-]+$/
 /** Maximum trash entries kept; the oldest overflow is purged automatically. */
 export const TRASH_LIMIT = 10
 
@@ -355,9 +360,6 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
           const agent = ctx.agents.get(id)
           const live = agent !== undefined
 
-          if (meta?.origin === 'subagent') {
-            return respond(res, 400, { ok: false, error: 'subagent-session' })
-          }
           if (agent?.status === 'running') {
             return respond(res, 409, { ok: false, error: 'session-live' })
           }

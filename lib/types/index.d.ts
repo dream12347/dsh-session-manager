@@ -8,8 +8,8 @@
  *   GET  /dsh-session-manager/trash                          -> list trash entries
  *
  * Delete flow (soft delete):
- *  1. Resolve the persisted session; refuse subagent-owned sessions and
- *     sessions whose agent is actively running a turn.
+ *  1. Resolve the persisted session; refuse sessions whose agent is actively
+ *     running a turn.
  *  2. Move the session's artifact directory into the plugin trash folder
  *     (a blank session without an artifact just records the entry).
  *  3. Archive the session so every client hides the row immediately.
