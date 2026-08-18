@@ -49,7 +49,7 @@ The "Context compaction threshold" in General settings (17%–90% with slider sc
 ### From GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.1.7'
+dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.1.8'
 ```
 
 ### From a local directory
@@ -62,7 +62,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-session-manager
 
 ```sh
 pnpm pack
-dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.1.7.tgz
+dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.1.8.tgz
 ```
 
 After installing, **restart** `dsh web` (the host plugin and the served client bundle load at startup).
