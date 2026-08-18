@@ -54,8 +54,9 @@ const MAX_BODY_BYTES = 64 * 1024
 // created via the api), `session-<n>` (store-minted, e.g. forks created
 // without an explicit id) and `<uuid>` (subagent children, created as
 // `SessionId(randomUUID())`). Accept all three; keep the charset tight
-// (hex + dashes only) because the id is joined into a trash path.
-const SESSION_ID_RE = /^[0-9a-fA-F-]+$/
+// (hex + dashes only, plus the literal "session-" prefix) because the id
+// is joined into a trash path.
+const SESSION_ID_RE = /^(session-)?[0-9a-fA-F-]+$/
 /** Maximum trash entries kept; the oldest overflow is purged automatically. */
 export const TRASH_LIMIT = 10
 
