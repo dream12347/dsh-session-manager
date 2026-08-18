@@ -27,7 +27,7 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ConnectionHandle, HistoryEntry, SessionId as WireSessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { WorkspaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { Button, IconTrashOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-import { createElement, Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
+import { createElement, Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import {
   COMPACTION_THRESHOLD_ROUTE,
@@ -228,20 +228,7 @@ const STYLE = `
   font-size: 12px;
 }
 .dsh-delete-session__sort {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-  color: var(--dsw-alias-label-secondary, #6b7280);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
   margin-left: auto;
-  padding: 2px 8px;
-}
-.dsh-delete-session__sort:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, .1));
-  color: var(--dsw-alias-label-primary, #111827);
 }
 .dsh-delete-session__notice {
   border-radius: 8px;
@@ -326,23 +313,9 @@ const STYLE = `
 }
 .dsh-delete-session__group-action {
   flex: none;
-  font-size: 11px;
-  line-height: 1;
-  padding: 3px 6px;
-  border: 1px solid var(--dsw-alias-border-default, #e5e7eb);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary, #6b7280);
-  cursor: pointer;
   white-space: nowrap;
 }
-.dsh-delete-session__group-action:hover {
-  border-color: var(--dsw-alias-state-info-border, #4d6bfe);
-  color: var(--dsw-alias-state-info-border, #4d6bfe);
-}
-.dsh-delete-session__group-action--danger,
-.dsh-delete-session__group-action--danger:hover {
-  border-color: var(--dsw-alias-state-danger-border, #ef4444);
+.dsh-delete-session__group-action--danger {
   color: var(--dsw-alias-state-danger-border, #ef4444);
 }
 /* General-settings preference row (context compaction threshold). */
@@ -417,21 +390,6 @@ const STYLE = `
 }
 .dsh-delete-session__general-save {
   flex: none;
-  font-size: 12px;
-  line-height: 1;
-  padding: 6px 12px;
-  border: 1px solid var(--dsw-alias-state-info-border, #4d6bfe);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--dsw-alias-state-info-border, #4d6bfe);
-  cursor: pointer;
-}
-.dsh-delete-session__general-save:hover:not(:disabled) {
-  background: var(--dsw-alias-state-info-bg, rgba(77, 107, 254, .12));
-}
-.dsh-delete-session__general-save:disabled {
-  opacity: .6;
-  cursor: default;
 }
 .dsh-delete-session__group-label:first-child {
   margin-top: 0;
@@ -476,27 +434,16 @@ const STYLE = `
 .dsh-delete-session__row[data-trash] {
   opacity: .85;
 }
-/* Row action buttons must never wrap (a narrow row would stack the label
-   vertically, e.g. 继续/会话) nor shrink below their content. They are the
-   official Button component (ghost variant is borderless by design); give
-   them a visible border WITHOUT overriding the official text color, and make
-   destructive actions red. */
-.dsh-delete-session__row .dsh-row-action {
+/* Row action buttons use the official Button component while keeping rows stable. */
+.dsh-row-action {
   flex: none;
   white-space: nowrap;
-  font-size: 12px;
-  line-height: 1;
-  padding: 4px 8px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
 }
-.dsh-delete-session__row .dsh-row-action:hover:not(:disabled) {
-  border-color: #3964fe;
+.dsh-row-action--danger {
+  color: var(--dsw-alias-state-danger-border, #ef4444);
 }
-.dsh-delete-session__row .dsh-row-action--danger,
-.dsh-delete-session__row .dsh-row-action--danger:hover:not(:disabled) {
-  border-color: #ef4444;
-  color: #ef4444;
+.dsh-row-action--danger:hover:not(:disabled) {
+  border-color: var(--dsw-alias-state-danger-border, #ef4444);
 }
 /* Per-row "More" popover menu (self-drawn). */
 .dsh-delete-session__more-wrap {
@@ -666,64 +613,41 @@ const STYLE = `
   color: var(--dsw-alias-label-tertiary, #9ca3af);
   font-weight: 400;
 }
-.dsh-delete-session__stats {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, .06));
-  border-radius: 8px;
-  font-size: 12px;
-  line-height: 1.7;
-  margin-top: 6px;
-  padding: 6px 10px;
-}
-.dsh-delete-session__stats-line {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-[data-dsh-delete-current] {
-  align-items: center;
-  appearance: none;
-  background: rgba(239, 68, 68, .1);
-  border: 0;
-  border-radius: 8px;
-  color: rgb(220, 38, 38);
-  cursor: pointer;
-  display: inline-flex;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  gap: 4px;
-  height: 28px;
-  justify-content: center;
-  padding: 0 10px;
-  white-space: nowrap;
-}
-[data-dsh-delete-current]:hover {
-  background: rgba(239, 68, 68, .2);
-}
-[data-dsh-delete-current]:disabled {
-  cursor: not-allowed;
-  opacity: .5;
-}
+[data-dsh-delete-current],
 [data-dsh-header-button] {
   align-items: center;
   appearance: none;
   background: transparent;
-  border: 1px solid var(--dsw-alias-line-border, rgba(127, 127, 127, .28));
-  border-radius: 8px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, .28));
+  border-radius: 18px;
   color: var(--dsw-alias-label-primary, #111827);
   cursor: pointer;
   display: inline-flex;
-  font: inherit;
+  font-family: var(--dsw-font-family);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   gap: 4px;
-  height: 28px;
+  height: 32px;
   justify-content: center;
-  padding: 0 10px;
+  line-height: 20px;
+  min-width: 111px;
+  padding: 6px 12px;
   white-space: nowrap;
 }
-[data-dsh-header-button]:hover {
+[data-dsh-delete-current] {
+  border-color: rgba(220, 38, 38, .45);
+  color: rgb(220, 38, 38);
+}
+[data-dsh-delete-current]:hover:not(:disabled) {
+  background: rgba(239, 68, 68, .1);
+}
+[data-dsh-header-button]:hover:not(:disabled) {
   background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, .1));
+}
+[data-dsh-delete-current]:disabled,
+[data-dsh-header-button]:disabled {
+  color: var(--dsw-alias-label-dimmed, #9ca3af);
+  cursor: wait;
 }
 [data-dsh-drawer-backdrop] {
   background: rgba(0, 0, 0, .28);
@@ -789,6 +713,102 @@ const STYLE = `
   font-size: 11px;
   line-height: 1.5;
   margin-bottom: 8px;
+}
+[data-dsh-stats-backdrop] {
+  align-items: center;
+  background: rgba(0, 0, 0, .42);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 20px;
+  position: fixed;
+  z-index: 1300;
+}
+[data-dsh-stats-dialog] {
+  background: var(--dsw-alias-bg-base, #fff);
+  border: 1px solid var(--dsw-alias-border-l2, rgba(127, 127, 127, .2));
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .28);
+  color: var(--dsw-alias-label-primary, #111827);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 40px);
+  overflow: hidden;
+  width: min(520px, calc(100vw - 40px));
+}
+.dsh-stats-dialog__header {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--dsw-alias-border-l3, rgba(127, 127, 127, .14));
+  display: flex;
+  gap: 12px;
+  padding: 16px 18px;
+}
+.dsh-stats-dialog__heading {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.dsh-stats-dialog__title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+}
+.dsh-stats-dialog__session {
+  color: var(--dsw-alias-label-secondary, #6b7280);
+  font-size: 12px;
+  line-height: 18px;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.dsh-stats-dialog__close {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: var(--dsw-alias-label-secondary, #6b7280);
+  cursor: pointer;
+  display: inline-flex;
+  flex: none;
+  font: inherit;
+  font-size: 22px;
+  height: 30px;
+  justify-content: center;
+  padding: 0;
+  width: 30px;
+}
+.dsh-stats-dialog__close:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, .1));
+}
+.dsh-stats-dialog__body {
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-y: auto;
+  padding: 18px;
+}
+.dsh-stats-dialog__grid {
+  display: grid;
+  gap: 12px 18px;
+  grid-template-columns: max-content minmax(0, 1fr);
+  margin: 0;
+}
+.dsh-stats-dialog__label {
+  color: var(--dsw-alias-label-secondary, #6b7280);
+  font-weight: 500;
+}
+.dsh-stats-dialog__value {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.dsh-stats-dialog__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dsh-stats-dialog__tool {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, .08));
+  border-radius: 6px;
+  padding: 3px 7px;
 }
 `
 
@@ -863,8 +883,30 @@ interface StatsState {
   data: SessionStats | null
 }
 
+type AppLocale = 'zh' | 'en'
+
+let appLocale: AppLocale = 'en'
+const appLocaleListeners = new Set<() => void>()
+
+function setAppLocale(next: string): void {
+  const normalized: AppLocale = next === 'zh' ? 'zh' : 'en'
+  if (appLocale === normalized) return
+  appLocale = normalized
+  for (const listener of [...appLocaleListeners]) listener()
+}
+
+function subscribeAppLocale(listener: () => void): () => void {
+  appLocaleListeners.add(listener)
+  return () => appLocaleListeners.delete(listener)
+}
+
+function useLocaleStrings() {
+  useSyncExternalStore(subscribeAppLocale, () => appLocale, () => appLocale)
+  return stringsOf()
+}
+
 function isZh(): boolean {
-  return typeof document !== 'undefined' && document.documentElement.lang.toLowerCase().startsWith('zh')
+  return appLocale === 'zh'
 }
 
 function stringsOf() {
@@ -912,6 +954,8 @@ function stringsOf() {
         batchDeleteConfirm: '确定删除选中的 {count} 个会话吗？它们会移入回收站，可在「回收站」中恢复或彻底删除。',
         batchDeleted: '已批量删除 {count} 个会话',
         batchFailed: '批量删除失败：{msg}',
+        batchResult: (okCount: number, total: number, failCount: number, detail: string) => `${okCount}/${total} 成功，失败 ${failCount} 个（${detail}）`,
+        listSeparator: '、',
         select: '选择',
         selectAll: '全选',
         selectWorkspace: '全选该工作区的会话',
@@ -1002,6 +1046,8 @@ function stringsOf() {
         batchDeleteConfirm: 'Delete the {count} selected sessions? They move to the trash, where you can restore or permanently delete them.',
         batchDeleted: 'Deleted {count} sessions',
         batchFailed: 'Batch delete failed: {msg}',
+        batchResult: (okCount: number, total: number, failCount: number, detail: string) => `${okCount}/${total} succeeded, ${failCount} failed (${detail})`,
+        listSeparator: ', ',
         select: 'Select',
         selectAll: 'Select all',
         selectWorkspace: 'Select all sessions in this workspace',
@@ -1074,7 +1120,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
   // Mutable mirrors for pointer-drag handlers (avoid stale closures).
   const dropSlotRef = useRef<string | null>(null)
   const groupsRef = useRef<typeof activeGroups>([])
-  const strings = stringsOf()
+  const strings = useLocaleStrings()
 
   // Notices auto-dismiss after a few seconds instead of lingering.
   const showNotice = useCallback((next: Notice): void => {
@@ -1291,32 +1337,35 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         }),
         createElement('span', { className: 'dsh-delete-session__group-label-text' }, `${group.title} (${group.rows.length})`),
         draggable ? createElement('span', { className: 'dsh-delete-session__group-actions' },
-          createElement('button', {
+          createElement(Button, {
             className: 'dsh-delete-session__group-action',
-            type: 'button',
+            variant: 'ghost',
+            size: 'sm',
             title: strings.workspaceToTop,
-            onPointerDown: (e: PointerEvent) => e.stopPropagation(),
-            onClick: (e: MouseEvent) => {
+            onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => e.stopPropagation(),
+            onClick: (e: ReactMouseEvent<HTMLButtonElement>) => {
               e.stopPropagation()
               void moveWorkspaceToTop(group.workspaceId)
             },
           }, strings.workspaceToTop),
-          createElement('button', {
+          createElement(Button, {
             className: 'dsh-delete-session__group-action',
-            type: 'button',
+            variant: 'ghost',
+            size: 'sm',
             title: strings.workspaceRename,
-            onPointerDown: (e: PointerEvent) => e.stopPropagation(),
-            onClick: (e: MouseEvent) => {
+            onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => e.stopPropagation(),
+            onClick: (e: ReactMouseEvent<HTMLButtonElement>) => {
               e.stopPropagation()
               void renameWorkspace(group)
             },
           }, strings.workspaceRename),
-          createElement('button', {
+          createElement(Button, {
             className: 'dsh-delete-session__group-action dsh-delete-session__group-action--danger',
-            type: 'button',
+            variant: 'ghost',
+            size: 'sm',
             title: strings.workspaceDelete,
-            onPointerDown: (e: PointerEvent) => e.stopPropagation(),
-            onClick: (e: MouseEvent) => {
+            onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => e.stopPropagation(),
+            onClick: (e: ReactMouseEvent<HTMLButtonElement>) => {
               e.stopPropagation()
               void deleteWorkspace(group)
             },
@@ -1448,8 +1497,9 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
     if (failCount === 0) {
       showNotice({ kind: 'ok', text: strings.batchDeleted.replace('{count}', String(okCount)) })
     } else {
-      const detail = failedTitles.slice(0, 3).join('、') + (failedTitles.length > 3 ? '…' : '')
-      showNotice({ kind: 'error', text: strings.batchFailed.replace('{msg}', `${okCount}/${ids.length} 成功，失败 ${failCount} 个（${detail}）`) })
+      const detail = failedTitles.slice(0, 3).join(strings.listSeparator) + (failedTitles.length > 3 ? '…' : '')
+      const result = strings.batchResult(okCount, ids.length, failCount, detail)
+      showNotice({ kind: 'error', text: strings.batchFailed.replace('{msg}', result) })
     }
     // Same as single delete: drop deleted sessions from the retained summaries.
     void (sessions as unknown as { refresh?: () => Promise<unknown> }).refresh?.()
@@ -1527,6 +1577,20 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
     }
   }, [api, statsId])
 
+  const closeStats = useCallback((): void => {
+    setStatsId(null)
+    setStats(null)
+  }, [])
+
+  useEffect(() => {
+    if (statsId === null) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closeStats()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [closeStats, statsId])
+
   // Continue a session: mark it read, open it through the browser sessions
   // service and close the settings panel so the user lands in the
   // conversation.
@@ -1601,32 +1665,79 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
     }
   }, [strings, showNotice])
 
-  const renderStats = (sessionId: string): ReactElement | null => {
-    if (statsId !== sessionId || stats === null) return null
+  const renderStatsDialog = (): ReactElement | null => {
+    if (statsId === null || stats === null) return null
+    const sessionTitle = list.byId[statsId as SessionId]?.displayTitle ?? statsId
+    let body: ReactElement
     if (stats.status === 'loading') {
-      return createElement('div', { className: 'dsh-delete-session__stats' }, strings.statsLoading)
+      body = createElement('div', { className: 'dsh-stats-dialog__body' }, strings.statsLoading)
+    } else if (stats.status === 'error') {
+      body = createElement('div', { className: 'dsh-stats-dialog__body' }, strings.statsFailed)
+    } else {
+      const data = stats.data
+      if (data === null || (data.turns === 0 && data.userMessages === 0 && data.assistantMessages === 0 && data.toolCalls.length === 0)) {
+        body = createElement('div', { className: 'dsh-stats-dialog__body' }, strings.statsEmpty)
+      } else {
+        const items: { label: string; value: string | ReactElement }[] = [
+          { label: strings.statsTurns, value: String(data.turns) },
+          { label: strings.statsUser, value: String(data.userMessages) },
+          { label: strings.statsAssistant, value: String(data.assistantMessages) },
+        ]
+        if (data.toolCalls.length > 0) {
+          items.push({
+            label: strings.statsTools,
+            value: createElement('div', { className: 'dsh-stats-dialog__tools' },
+              ...data.toolCalls.map((tool) => createElement('span', {
+                className: 'dsh-stats-dialog__tool',
+                key: tool.name,
+              }, `${tool.name} ×${tool.count}`)),
+            ),
+          })
+        }
+        if (data.startedAt > 0 && data.updatedAt > 0) {
+          items.push({
+            label: strings.statsWindow,
+            value: `${strings.deletedAt(data.startedAt)} ~ ${strings.deletedAt(data.updatedAt)}`,
+          })
+        }
+        body = createElement('div', { className: 'dsh-stats-dialog__body' },
+          createElement('dl', { className: 'dsh-stats-dialog__grid' },
+            ...items.flatMap((item) => [
+              createElement('dt', { className: 'dsh-stats-dialog__label', key: `${item.label}-label` }, item.label),
+              createElement('dd', { className: 'dsh-stats-dialog__value', key: `${item.label}-value` }, item.value),
+            ]),
+          ),
+        )
+      }
     }
-    if (stats.status === 'error') {
-      return createElement('div', { className: 'dsh-delete-session__stats' }, strings.statsFailed)
-    }
-    const data = stats.data
-    if (data === null || (data.turns === 0 && data.userMessages === 0 && data.assistantMessages === 0 && data.toolCalls.length === 0)) {
-      return createElement('div', { className: 'dsh-delete-session__stats' }, strings.statsEmpty)
-    }
-    const lines = [
-      `${strings.statsTurns}: ${data.turns}`,
-      `${strings.statsUser}: ${data.userMessages}`,
-      `${strings.statsAssistant}: ${data.assistantMessages}`,
-    ]
-    if (data.toolCalls.length > 0) {
-      const tools = data.toolCalls.slice(0, 5).map((tool) => `${tool.name} ×${tool.count}`).join(' · ')
-      lines.push(`${strings.statsTools}: ${tools}`)
-    }
-    if (data.startedAt > 0 && data.updatedAt > 0) {
-      lines.push(`${strings.statsWindow}: ${strings.deletedAt(data.startedAt)} ~ ${strings.deletedAt(data.updatedAt)}`)
-    }
-    return createElement('div', { className: 'dsh-delete-session__stats' },
-      ...lines.map((line) => createElement('div', { className: 'dsh-delete-session__stats-line', key: line }, line)),
+    return createElement('div', {
+      'data-dsh-stats-backdrop': '',
+      onMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => {
+        if (event.target === event.currentTarget) closeStats()
+      },
+    },
+      createElement('section', {
+        'data-dsh-stats-dialog': '',
+        role: 'dialog',
+        'aria-modal': true,
+        'aria-label': strings.stats,
+      },
+        createElement('div', { className: 'dsh-stats-dialog__header' },
+          createElement('div', { className: 'dsh-stats-dialog__heading' },
+            createElement('div', { className: 'dsh-stats-dialog__title' }, strings.stats),
+            createElement('div', { className: 'dsh-stats-dialog__session' }, sessionTitle),
+          ),
+          createElement('button', {
+            type: 'button',
+            className: 'dsh-stats-dialog__close',
+            title: strings.close,
+            'aria-label': strings.close,
+            onClick: closeStats,
+            children: '×',
+          }),
+        ),
+        body,
+      ),
     )
   }
 
@@ -1693,11 +1804,10 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
           })(),
         ),
         createElement('div', { className: 'dsh-delete-session__row-meta', title: metaParts.join(' · ') }, metaParts.join(' · ')),
-        renderStats(session.id),
       ),
       createElement(Button, {
         className: 'dsh-row-action',
-        variant: 'ghost',
+        variant: 'outline',
         size: 'sm',
         disabled: isRunning || busy,
         title: isRunning ? strings.running : strings.continue,
@@ -1706,7 +1816,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       }),
       createElement(Button, {
         className: 'dsh-row-action',
-        variant: 'ghost',
+        variant: 'outline',
         size: 'sm',
         disabled: isRunning || busy,
         title: strings.fork,
@@ -1715,7 +1825,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       }),
       isRunning && createElement(Button, {
         className: 'dsh-row-action',
-        variant: 'ghost',
+        variant: 'outline',
         size: 'sm',
         disabled: busy,
         onClick: () => void handlePause(session.id),
@@ -1723,7 +1833,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       }),
       isArchived && createElement(Button, {
         className: 'dsh-row-action',
-        variant: 'ghost',
+        variant: 'outline',
         size: 'sm',
         disabled: busy,
         onClick: () => void handleRestore(session.id, session.displayTitle),
@@ -1731,7 +1841,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       }),
       createElement(Button, {
         className: 'dsh-row-action',
-        variant: 'ghost',
+        variant: 'outline',
         size: 'sm',
         disabled: busy,
         onClick: () => void handleStats(session.id),
@@ -1739,7 +1849,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       }),
       createElement(Button, {
         className: 'dsh-row-action',
-        variant: 'ghost',
+        variant: 'outline',
         size: 'sm',
         disabled: busy,
         onClick: () => void handleOpenFolder(session.id),
@@ -1776,7 +1886,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       ),
       createElement(Button, {
         className: 'dsh-row-action',
-        variant: 'ghost',
+        variant: 'outline',
         size: 'sm',
         disabled: busy,
         onClick: () => void handleRestore(entry.sessionId, title),
@@ -1797,9 +1907,10 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
   return createElement('div', { 'data-dsh-delete-session': '' },
     createElement('div', { className: 'dsh-delete-session__header' },
       createElement('span', { className: 'dsh-delete-session__title' }, strings.title),
-      createElement('button', {
-        type: 'button',
+      createElement(Button, {
         className: 'dsh-delete-session__sort',
+        variant: 'ghost',
+        size: 'sm',
         title: newestFirst ? strings.sortOldest : strings.sortNewest,
         onClick: () => setNewestFirst((value) => !value),
         children: newestFirst ? strings.sortNewest : strings.sortOldest,
@@ -1879,6 +1990,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         strings.trashHint.replace('{limit}', String(trashLimit)),
       ),
     ),
+    renderStatsDialog(),
   )
 }
 
@@ -1897,6 +2009,15 @@ export function apply(ctx: ClientContext): void {
   // ctx.effect callback (those run synchronously) to avoid TDZ crashes.
   const sessions = ctx.sessions
   const workspaces = ctx.workspaces
+
+  const syncLocale = (): void => {
+    setAppLocale(ctx.locale.getLocale().active)
+  }
+  syncLocale()
+  ctx.effect(() => {
+    const unsubscribe = ctx.locale.subscribe(syncLocale)
+    return () => unsubscribe()
+  }, 'dsh-session-manager: locale sync')
 
   // Locale dictionaries: the settings-section navigation label.
   ctx.effect(() => ctx.locale.register(NS, { zh: NAV_ZH, en: NAV_EN }), 'dsh-delete-session: dictionaries')
@@ -2028,18 +2149,21 @@ export function apply(ctx: ClientContext): void {
         name: 'conversation.session.header.utilities',
         id: 'dsh-delete-session-drawer-host',
         order: -40,
+        locale: NS,
         inject: common,
       }, SessionDrawerHost),
       ctx.slots.register({
         name: 'conversation.session.header.utilities',
         id: 'dsh-delete-session-manage',
         order: -30,
+        locale: NS,
         inject: common,
       }, HeaderManageButton),
       ctx.slots.register({
         name: 'conversation.session.header.utilities',
         id: 'dsh-delete-session',
         order: -10,
+        locale: NS,
         inject: () => ({}),
       }, DeleteCurrentButton),
     ]
@@ -2056,6 +2180,8 @@ interface ClientContext {
   sessions: import('@deepseek-ai/dsh-client-runtime/client').ISessions
   workspaces: import('@deepseek-ai/dsh-client-runtime/client').IWorkspaces
   locale: {
+    getLocale(): { active: string }
+    subscribe(listener: () => void): () => void
     register(namespace: string, dictionaries: Record<'zh' | 'en', Record<string, string>>): () => void
     bind(namespace: string): (key: 'nav') => string
   }
@@ -2068,7 +2194,7 @@ interface DeleteCurrentButtonProps {
 
 /** Red "delete this session" button mounted in the conversation header. */
 function DeleteCurrentButton({ sessionId }: DeleteCurrentButtonProps): ReactElement {
-  const strings = stringsOf()
+  const strings = useLocaleStrings()
   const handleClick = (): void => {
     if (!window.confirm(strings.deleteCurrentConfirm)) return
     void (async () => {
@@ -2127,7 +2253,7 @@ interface CompactionThresholdResponse {
  * across restarts.
  */
 function CompactionThresholdRow(_props: { children?: never }): ReactElement {
-  const strings = stringsOf()
+  const strings = useLocaleStrings()
   const [ratio, setRatio] = useState(COMPACTION_DEFAULT_RATIO)
   const [draft, setDraft] = useState('')
   // Once the user has touched the slider/input, the async GET result must
@@ -2228,12 +2354,14 @@ function CompactionThresholdRow(_props: { children?: never }): ReactElement {
           },
         }),
         createElement('span', { className: 'dsh-delete-session__general-percent' }, '%'),
-        createElement('button', {
+        createElement(Button, {
           className: 'dsh-delete-session__general-save',
-          type: 'button',
+          variant: 'outline',
+          size: 'sm',
           disabled: saveState === 'saving',
           onClick: save,
-        }, saveState === 'saved' ? strings.compactionSaved : strings.compactionSave),
+          children: saveState === 'saved' ? strings.compactionSaved : strings.compactionSave,
+        }),
       ),
     ),
     createElement('div', { className: 'dsh-delete-session__general-slider-wrap' },
@@ -2296,7 +2424,7 @@ interface DrawerInjected {
 
 /** "对话管理" header button: open the drawer on the main list. */
 function HeaderManageButton(_props: DrawerInjected): ReactElement {
-  const strings = stringsOf()
+  const strings = useLocaleStrings()
   return createElement('button', {
     type: 'button',
     'data-dsh-header-button': '',
@@ -2341,7 +2469,7 @@ interface DrawerRow {
 /** The right drawer: full session management (list, archived, trash). */
 function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
   const state = useDrawerState()
-  const strings = stringsOf()
+  const strings = useLocaleStrings()
   // Subscribe to the official session store (same source the sidebar uses):
   // running / pendingInteraction / completed stay live and in sync.
   const subscribe = useCallback((fn: () => void): (() => void) => sessions.list.subscribe(fn), [sessions])
@@ -2553,6 +2681,20 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
     }
   }, [api, statsId])
 
+  const closeStats = useCallback((): void => {
+    setStatsId(null)
+    setStats(null)
+  }, [])
+
+  useEffect(() => {
+    if (statsId === null) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closeStats()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [closeStats, statsId])
+
   const handleOpenFolder = useCallback(async (sessionId: string): Promise<void> => {
     setBusyId(sessionId)
     const error = await postAction(OPEN_FOLDER_ROUTE, sessionId).catch((e) => e instanceof Error ? e.message : 'error')
@@ -2586,31 +2728,79 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
     }
   }, [api, sessions, strings, showAlert])
 
-  const renderStatsBlock = (sessionId: string): ReactElement | null => {
-    if (statsId !== sessionId || stats === null) return null
+  const renderStatsDialog = (): ReactElement | null => {
+    if (statsId === null || stats === null) return null
+    const sessionTitle = rows?.find((row) => row.sessionId === statsId)?.title ?? statsId
+    let body: ReactElement
     if (stats.status === 'loading') {
-      return createElement('div', { className: 'dsh-delete-session__stats' }, strings.statsLoading)
+      body = createElement('div', { className: 'dsh-stats-dialog__body' }, strings.statsLoading)
+    } else if (stats.status === 'error') {
+      body = createElement('div', { className: 'dsh-stats-dialog__body' }, strings.statsFailed)
+    } else {
+      const data = stats.data
+      if (data === null || (data.turns === 0 && data.userMessages === 0 && data.assistantMessages === 0 && data.toolCalls.length === 0)) {
+        body = createElement('div', { className: 'dsh-stats-dialog__body' }, strings.statsEmpty)
+      } else {
+        const items: { label: string; value: string | ReactElement }[] = [
+          { label: strings.statsTurns, value: String(data.turns) },
+          { label: strings.statsUser, value: String(data.userMessages) },
+          { label: strings.statsAssistant, value: String(data.assistantMessages) },
+        ]
+        if (data.toolCalls.length > 0) {
+          items.push({
+            label: strings.statsTools,
+            value: createElement('div', { className: 'dsh-stats-dialog__tools' },
+              ...data.toolCalls.map((tool) => createElement('span', {
+                className: 'dsh-stats-dialog__tool',
+                key: tool.name,
+              }, `${tool.name} ×${tool.count}`)),
+            ),
+          })
+        }
+        if (data.startedAt > 0 && data.updatedAt > 0) {
+          items.push({
+            label: strings.statsWindow,
+            value: `${strings.deletedAt(data.startedAt)} ~ ${strings.deletedAt(data.updatedAt)}`,
+          })
+        }
+        body = createElement('div', { className: 'dsh-stats-dialog__body' },
+          createElement('dl', { className: 'dsh-stats-dialog__grid' },
+            ...items.flatMap((item) => [
+              createElement('dt', { className: 'dsh-stats-dialog__label', key: `${item.label}-label` }, item.label),
+              createElement('dd', { className: 'dsh-stats-dialog__value', key: `${item.label}-value` }, item.value),
+            ]),
+          ),
+        )
+      }
     }
-    if (stats.status === 'error') {
-      return createElement('div', { className: 'dsh-delete-session__stats' }, strings.statsFailed)
-    }
-    const data = stats.data
-    if (data === null || (data.turns === 0 && data.userMessages === 0 && data.assistantMessages === 0 && data.toolCalls.length === 0)) {
-      return createElement('div', { className: 'dsh-delete-session__stats' }, strings.statsEmpty)
-    }
-    const lines = [
-      `${strings.statsTurns}: ${data.turns}`,
-      `${strings.statsUser}: ${data.userMessages}`,
-      `${strings.statsAssistant}: ${data.assistantMessages}`,
-    ]
-    if (data.toolCalls.length > 0) {
-      lines.push(`${strings.statsTools}: ${data.toolCalls.slice(0, 5).map((tool) => `${tool.name} ×${tool.count}`).join(' · ')}`)
-    }
-    if (data.startedAt > 0 && data.updatedAt > 0) {
-      lines.push(`${strings.statsWindow}: ${strings.deletedAt(data.startedAt)} ~ ${strings.deletedAt(data.updatedAt)}`)
-    }
-    return createElement('div', { className: 'dsh-delete-session__stats' },
-      ...lines.map((line) => createElement('div', { className: 'dsh-delete-session__stats-line', key: line }, line)),
+    return createElement('div', {
+      'data-dsh-stats-backdrop': '',
+      onMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => {
+        if (event.target === event.currentTarget) closeStats()
+      },
+    },
+      createElement('section', {
+        'data-dsh-stats-dialog': '',
+        role: 'dialog',
+        'aria-modal': true,
+        'aria-label': strings.stats,
+      },
+        createElement('div', { className: 'dsh-stats-dialog__header' },
+          createElement('div', { className: 'dsh-stats-dialog__heading' },
+            createElement('div', { className: 'dsh-stats-dialog__title' }, strings.stats),
+            createElement('div', { className: 'dsh-stats-dialog__session' }, sessionTitle),
+          ),
+          createElement('button', {
+            type: 'button',
+            className: 'dsh-stats-dialog__close',
+            title: strings.close,
+            'aria-label': strings.close,
+            onClick: closeStats,
+            children: '×',
+          }),
+        ),
+        body,
+      ),
     )
   }
 
@@ -2661,7 +2851,6 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
           })(),
         ),
         createElement('div', { className: 'dsh-delete-session__row-meta', title: metaParts.join(' · ') }, metaParts.join(' · ')),
-        renderStatsBlock(row.sessionId),
       ),
       createElement(Button, {
         className: 'dsh-row-action',
@@ -2937,32 +3126,35 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
       children: [
         createElement('span', { className: 'dsh-delete-session__group-label-text' }, `${group.title} (${group.rows.length})`),
         draggable ? createElement('span', { className: 'dsh-delete-session__group-actions' },
-          createElement('button', {
+          createElement(Button, {
             className: 'dsh-delete-session__group-action',
-            type: 'button',
+            variant: 'ghost',
+            size: 'sm',
             title: strings.workspaceToTop,
-            onPointerDown: (e: PointerEvent) => e.stopPropagation(),
-            onClick: (e: MouseEvent) => {
+            onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => e.stopPropagation(),
+            onClick: (e: ReactMouseEvent<HTMLButtonElement>) => {
               e.stopPropagation()
               void moveWorkspaceToTop(group.workspaceId)
             },
           }, strings.workspaceToTop),
-          createElement('button', {
+          createElement(Button, {
             className: 'dsh-delete-session__group-action',
-            type: 'button',
+            variant: 'ghost',
+            size: 'sm',
             title: strings.workspaceRename,
-            onPointerDown: (e: PointerEvent) => e.stopPropagation(),
-            onClick: (e: MouseEvent) => {
+            onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => e.stopPropagation(),
+            onClick: (e: ReactMouseEvent<HTMLButtonElement>) => {
               e.stopPropagation()
               void renameWorkspace(group)
             },
           }, strings.workspaceRename),
-          createElement('button', {
+          createElement(Button, {
             className: 'dsh-delete-session__group-action dsh-delete-session__group-action--danger',
-            type: 'button',
+            variant: 'ghost',
+            size: 'sm',
             title: strings.workspaceDelete,
-            onPointerDown: (e: PointerEvent) => e.stopPropagation(),
-            onClick: (e: MouseEvent) => {
+            onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => e.stopPropagation(),
+            onClick: (e: ReactMouseEvent<HTMLButtonElement>) => {
               e.stopPropagation()
               void deleteWorkspace(group)
             },
@@ -2997,9 +3189,10 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
     createElement('div', { 'data-dsh-drawer': '' },
       createElement('div', { className: 'dsh-drawer__header' },
         createElement('span', { className: 'dsh-drawer__title' }, strings.title),
-        createElement('button', {
-          type: 'button',
+        createElement(Button, {
           className: 'dsh-delete-session__sort',
+          variant: 'ghost',
+          size: 'sm',
           title: newestFirst ? strings.sortOldest : strings.sortNewest,
           onClick: () => setNewestFirst((value) => !value),
           children: newestFirst ? strings.sortNewest : strings.sortOldest,
@@ -3081,5 +3274,6 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
         ),
       ),
     ),
+    renderStatsDialog(),
   )
 }

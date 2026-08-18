@@ -13,7 +13,7 @@
 - 设置页新增独立的「会话管理」分栏（与 Notifications 同级的设置分区）
 - 面板列出全部会话（标题 / 工作目录），底部折叠区单独展示**已归档会话**，支持**一键恢复**回到会话列表
 - **回收站**：删除的会话移入回收站（保留最近 10 条，超出自动清除最早一条），可**恢复**或**彻底删除**
-- **统计**：每个会话可展开查看近期活动统计（轮次 / 用户消息 / 助手消息 / 工具调用 / 活动窗口）
+- **统计**：每个会话可在居中弹窗中查看完整近期活动统计（轮次 / 用户消息 / 助手消息 / 全部工具调用 / 活动窗口）
 - **继续会话**：一键打开会话并关闭面板；**暂停**：停止正在运行会话的当前回合
 - **未读 / 已读**：会话行标题旁显示状态点——手动未读为蓝色、官方等待输入为琥珀、官方完成提醒为绿色、运行中为转圈；点击官方状态点**就地已读**（不跳转），点击蓝色点清除未读，打开会话自动已读；官方侧边栏的对应会话行旁同步显示蓝色未读点
 - **新聊天中继续**：每个会话一键 fork 子会话（官方 `sessions.fork`）并打开
@@ -31,7 +31,7 @@
 ### 从 GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.1.9'
+dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.2.0'
 ```
 
 ### 从本地目录
@@ -44,7 +44,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-session-manager
 
 ```sh
 pnpm pack
-dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.1.9.tgz
+dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.2.0.tgz
 ```
 
 安装完成后**重启** `dsh web`（host 插件与客户端 bundle 需要重启加载）。

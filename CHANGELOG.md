@@ -1,5 +1,16 @@
 # 更新日志 (Changelog)
 
+## v0.2.0 (2026-08-19)
+
+### 修复
+
+- **语言跟随 DSH 设置**：插件改用 DSH locale 服务判断当前语言并监听运行时切换，不再受浏览器语言或 `<html lang>` 影响；同时移除批量删除结果中的硬编码中文（[#5](https://github.com/dream12347/dsh-session-manager/issues/5)）
+
+### 优化
+
+- **官方按钮样式**：对话顶部按钮与 Session log 的尺寸、圆角和边框保持一致；设置页常规操作改用官方 `Button` 组件，并保留禁止换行与防收缩布局（[#6](https://github.com/dream12347/dsh-session-manager/issues/6)）
+- **完整统计弹窗**：抽屉与设置页的统计信息统一改为屏幕中央弹窗，完整显示会话名、轮次、用户/助手消息、全部工具调用和活动窗口；支持关闭按钮、点击遮罩和 `Esc` 关闭，不再截断或依赖 tooltip（[#7](https://github.com/dream12347/dsh-session-manager/issues/7)）
+
 ## v0.1.9 (2026-08-18)
 
 ### 修复

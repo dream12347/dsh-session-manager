@@ -13,7 +13,7 @@ Possibly the most feature-complete DSH session manager plugin out there: full se
 - A dedicated **Session Manager** section in Settings (a settings section, sibling to Notifications)
 - Lists all sessions (title / working directory); **archived sessions** are grouped in a collapsible area at the bottom with a **one-click Restore** back to the list
 - **Trash**: deleted sessions move to the trash (keeps the most recent 10, the oldest is purged automatically), with **Restore** and **Delete permanently** actions
-- **Stats**: expand any session to see recent activity (turns / user messages / assistant messages / tool calls / activity window)
+- **Stats**: open a centered dialog with complete recent activity (turns / user messages / assistant messages / all tool calls / activity window)
 - **Continue session**: open a session and close the panel; **Pause**: stop a running session's current turn
 - **Unread / read**: a status dot next to each session's title — blue for manually marked unread, amber for the official waiting-for-input state, green for the official completion reminder, spinner while running; clicking an official dot marks it read **in place** (no navigation), clicking the blue dot clears the unread, opening a session auto-reads it; the official sidebar shows a matching blue unread dot on the session row
 - **Fork into a new chat**: one click forks a child session (official `sessions.fork`) and opens it
@@ -24,14 +24,14 @@ Possibly the most feature-complete DSH session manager plugin out there: full se
 - **Context compaction threshold** (General settings): set at what fraction of the 1M-token model window the conversation context auto-compacts (17%–90%), keeping the most recent 16% verbatim; applies **globally to all agent presets** (immediate on save + persisted + auto-applied on restart)
 - Delete restriction: only sessions **currently thinking** are protected; an open-but-idle session can be deleted
 - Subagent sessions can be deleted when not running: even orphaned ones (whose parent session is already deleted) can be cleaned up directly from Session Manager
-- UI language follows the page language (Chinese / English)
+- UI language follows the active DSH app language and updates live (Chinese / English)
 
 ## Install
 
 ### From GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.1.9'
+dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.2.0'
 ```
 
 ### From a local directory
@@ -44,7 +44,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-session-manager
 
 ```sh
 pnpm pack
-dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.1.9.tgz
+dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.2.0.tgz
 ```
 
 After installing, **restart** `dsh web` (the host plugin and the served client bundle load at startup).
