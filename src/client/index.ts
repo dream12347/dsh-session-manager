@@ -1290,6 +1290,10 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       if (!response.ok || data.ok !== true) throw new Error(data.error ?? `HTTP ${response.status}`)
       await loadTrash()
       showNotice({ kind: 'ok', text: strings.deleted.replace('{title}', title) })
+      // Drop the deleted session from the official client-side summaries so
+      // the subagent catalog (indexSubagentDescendants) stops tracking it
+      // (the host never emits session-removed for a cold session we moved).
+      void (sessions as unknown as { refresh?: () => Promise<unknown> }).refresh?.()
     } catch (error) {
       const code = error instanceof Error ? error.message : ''
       const friendly = code === 'session-live' ? strings.liveError : code === 'session-not-found' ? strings.notFoundError : ''
@@ -1298,7 +1302,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
     } finally {
       setBusyId(null)
     }
-  }, [strings, loadTrash, showNotice])
+  }, [strings, loadTrash, showNotice, sessions])
 
   const handleRestore = useCallback(async (sessionId: string, title: string): Promise<void> => {
     if (!window.confirm(strings.restoreConfirm.replace('{title}', title))) return
@@ -1314,6 +1318,8 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       if (!response.ok || data.ok !== true) throw new Error(data.error ?? `HTTP ${response.status}`)
       await loadTrash()
       showNotice({ kind: 'ok', text: strings.restored.replace('{title}', title) })
+      // Re-pull the list so a restored session re-enters the client mirror.
+      void (sessions as unknown as { refresh?: () => Promise<unknown> }).refresh?.()
     } catch (error) {
       const code = error instanceof Error ? error.message : ''
       const suffix = code !== '' ? ` (${code})` : ''
@@ -1321,7 +1327,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
     } finally {
       setBusyId(null)
     }
-  }, [strings, loadTrash, showNotice])
+  }, [strings, loadTrash, showNotice, sessions])
 
   const handlePurge = useCallback(async (sessionId: string, title: string): Promise<void> => {
     if (!window.confirm(strings.purgeConfirm.replace('{title}', title))) return
@@ -1338,6 +1344,8 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       markRemoved(sessionId)
       await loadTrash()
       showNotice({ kind: 'ok', text: strings.purged.replace('{title}', title) })
+      // Same as delete: drop the purged session from the retained summaries.
+      void (sessions as unknown as { refresh?: () => Promise<unknown> }).refresh?.()
     } catch (error) {
       const code = error instanceof Error ? error.message : ''
       const suffix = code !== '' ? ` (${code})` : ''
@@ -1345,7 +1353,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
     } finally {
       setBusyId(null)
     }
-  }, [strings, loadTrash, markRemoved, showNotice])
+  }, [strings, loadTrash, markRemoved, showNotice, sessions])
 
   // Toggle the stats for one session: fold the recent history window.
   const handleStats = useCallback(async (sessionId: string): Promise<void> => {
@@ -2311,7 +2319,19 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
       return
     }
     await Promise.all([load(), refreshTrash()])
-  }, [strings, postAction, load, refreshTrash])
+    // The official host never emits a session-removed frame for a cold
+    // (persisted, not live) session we just moved into the trash — the
+    // client's retained summaries keep it, and the official subagent
+    // catalog (indexSubagentDescendants) keeps tracking it, leaving the
+    // parent's "loading subagents" state stuck forever. Force a full list
+    // re-pull so the removed session leaves the client mirror and the
+    // catalog settles.
+    try {
+      await (sessions as { refresh?: () => Promise<unknown> }).refresh?.()
+    } catch {
+      // Best-effort; the next list refresh re-baselines anyway.
+    }
+  }, [strings, postAction, load, refreshTrash, sessions])
 
   const handleRestore = useCallback(async (sessionId: string, title: string): Promise<void> => {
     if (!window.confirm(strings.restoreConfirm.replace('{title}', title))) return
@@ -2323,7 +2343,14 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
       return
     }
     await Promise.all([load(), refreshTrash()])
-  }, [strings, postAction, load, refreshTrash])
+    // Re-pull the list so a restored session re-enters the client mirror
+    // (the delete flow removed it from the retained summaries).
+    try {
+      await (sessions as { refresh?: () => Promise<unknown> }).refresh?.()
+    } catch {
+      // Best-effort; the next list refresh re-baselines anyway.
+    }
+  }, [strings, postAction, load, refreshTrash, sessions])
 
   const handlePurge = useCallback(async (sessionId: string, title: string): Promise<void> => {
     if (!window.confirm(strings.purgeConfirm.replace('{title}', title))) return
@@ -2335,7 +2362,14 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
       return
     }
     await Promise.all([load(), refreshTrash()])
-  }, [strings, postAction, load, refreshTrash])
+    // Same as delete: drop the purged session from the retained summaries
+    // so the official subagent catalog does not keep tracking it.
+    try {
+      await (sessions as { refresh?: () => Promise<unknown> }).refresh?.()
+    } catch {
+      // Best-effort; the next list refresh re-baselines anyway.
+    }
+  }, [strings, postAction, load, refreshTrash, sessions])
 
   const handleStats = useCallback(async (sessionId: string): Promise<void> => {
     if (statsId === sessionId) {
