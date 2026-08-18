@@ -306,6 +306,12 @@ const STYLE = `
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.dsh-delete-session__workspace-checkbox {
+  flex: none;
+  margin: 0;
+  width: 13px;
+  height: 13px;
+}
 .dsh-delete-session__group-actions {
   flex: none;
   display: flex;
@@ -534,6 +540,43 @@ const STYLE = `
   opacity: .5;
   cursor: default;
 }
+.dsh-delete-session__more-item--danger {
+  color: #dc2626;
+}
+.dsh-delete-session__more-item--danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, .12);
+}
+.dsh-delete-session__checkbox {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  accent-color: #dc2626;
+  cursor: pointer;
+}
+.dsh-delete-session__checkbox:disabled {
+  cursor: default;
+  opacity: .5;
+}
+.dsh-delete-session__batch {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  padding: 4px 2px 8px;
+}
+.dsh-delete-session__batch-select-all {
+  align-items: center;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--dsw-alias-label-primary, #0f1115);
+}
+.dsh-delete-session__batch-count {
+  color: var(--dsw-alias-label-secondary, #6b7280);
+  flex: 1 1 auto;
+  font-size: 12px;
+}
 .dsh-delete-session__list {
   list-style: none;
   margin: 0;
@@ -681,9 +724,6 @@ const STYLE = `
 }
 [data-dsh-header-button]:hover {
   background: var(--dsw-alias-interactive-bg-hover, rgba(127, 127, 127, .1));
-}
-[data-dsh-header-trash] {
-  color: var(--dsw-alias-label-secondary, #6b7280);
 }
 [data-dsh-drawer-backdrop] {
   background: rgba(0, 0, 0, .28);
@@ -868,6 +908,14 @@ function stringsOf() {
         forkFailed: '创建子会话失败',
         forkUnavailable: '当前回合尚未结束，无法在此处切分',
         more: '更多',
+        batchDelete: '批量删除',
+        batchDeleteConfirm: '确定删除选中的 {count} 个会话吗？它们会移入回收站，可在「回收站」中恢复或彻底删除。',
+        batchDeleted: '已批量删除 {count} 个会话',
+        batchFailed: '批量删除失败：{msg}',
+        select: '选择',
+        selectAll: '全选',
+        selectWorkspace: '全选该工作区的会话',
+        selectedCount: (count: number) => `已选 ${count} 个`,
         unread: '标记为未读',
         read: '标记为已读',
         stats: '统计',
@@ -887,7 +935,6 @@ function stringsOf() {
         deleteCurrentFailed: '删除当前对话失败',
         deleteCurrentRunning: '对话正在运行',
         manageButton: '对话管理',
-        trashButton: '回收站',
         pin: '固定面板',
         unpin: '取消固定',
         drawerPinHint: '固定后面板保持打开，点击面板外不会自动收起。',
@@ -951,6 +998,14 @@ function stringsOf() {
         forkFailed: 'Failed to fork session',
         forkUnavailable: 'the current turn is still open; it cannot be forked here',
         more: 'More',
+        batchDelete: 'Delete selected',
+        batchDeleteConfirm: 'Delete the {count} selected sessions? They move to the trash, where you can restore or permanently delete them.',
+        batchDeleted: 'Deleted {count} sessions',
+        batchFailed: 'Batch delete failed: {msg}',
+        select: 'Select',
+        selectAll: 'Select all',
+        selectWorkspace: 'Select all sessions in this workspace',
+        selectedCount: (count: number) => `${count} selected`,
         unread: 'Mark as unread',
         read: 'Mark as read',
         stats: 'Stats',
@@ -970,7 +1025,6 @@ function stringsOf() {
         deleteCurrentFailed: 'Failed to delete this session',
         deleteCurrentRunning: 'the conversation is running',
         manageButton: 'Session Manager',
-        trashButton: 'Trash',
         pin: 'Pin panel',
         unpin: 'Unpin panel',
         drawerPinHint: 'When pinned, the panel stays open and does not close on outside clicks.',
@@ -1010,6 +1064,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
   const [notice, setNotice] = useState<Notice | null>(null)
   const [statsId, setStatsId] = useState<string | null>(null)
   const [stats, setStats] = useState<StatsState | null>(null)
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set())
   const unread = useUnread()
   const [newestFirst, setNewestFirst] = useState(true)
   const [dragWorkspaceId, setDragWorkspaceId] = useState<string | null>(null)
@@ -1143,6 +1198,9 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
     index: number,
   ): ReactElement => {
     const draggable = group.workspaceId !== '__ungrouped__'
+    const workspaceSelectable = group.rows.filter((session) => !session.running && session.id !== list.current)
+    const workspaceAllSelected = workspaceSelectable.length > 0 && workspaceSelectable.every((session) => selectedIds.has(session.id))
+    const workspaceSomeSelected = workspaceSelectable.some((session) => selectedIds.has(session.id))
     return createElement('div', {
       className: 'dsh-delete-session__group-label' + (draggable ? ' dsh-delete-session__group-label--drag' : ''),
       'data-drag-workspace': group.workspaceId,
@@ -1212,6 +1270,25 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         void handleWorkspaceDrop(dropSlotRef.current)
       } : undefined,
       children: [
+        createElement('input', {
+          type: 'checkbox',
+          className: 'dsh-delete-session__checkbox dsh-delete-session__workspace-checkbox',
+          checked: workspaceAllSelected,
+          disabled: workspaceSelectable.length === 0,
+          title: strings.selectWorkspace,
+          'aria-label': strings.selectWorkspace,
+          ref: (el: HTMLInputElement | null) => {
+            if (el !== null) el.indeterminate = workspaceSomeSelected && !workspaceAllSelected
+          },
+          onPointerDown: (e: PointerEvent) => {
+            e.stopPropagation()
+            e.preventDefault()
+          },
+          onClick: (e: MouseEvent) => {
+            e.stopPropagation()
+            void toggleSelectWorkspace(group)
+          },
+        }),
         createElement('span', { className: 'dsh-delete-session__group-label-text' }, `${group.title} (${group.rows.length})`),
         draggable ? createElement('span', { className: 'dsh-delete-session__group-actions' },
           createElement('button', {
@@ -1303,6 +1380,80 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       setBusyId(null)
     }
   }, [strings, loadTrash, showNotice, sessions])
+
+  const toggleSelected = useCallback((sessionId: string): void => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous)
+      if (next.has(sessionId)) next.delete(sessionId)
+      else next.add(sessionId)
+      return next
+    })
+  }, [])
+
+  const toggleSelectAll = useCallback((): void => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous)
+      const selectable = activeRows.filter((session) => !session.running && session.id !== list.current)
+      const allSelected = selectable.length > 0 && selectable.every((session) => next.has(session.id))
+      for (const session of selectable) {
+        if (allSelected) next.delete(session.id)
+        else next.add(session.id)
+      }
+      return next
+    })
+  }, [activeRows, list.current])
+
+  const toggleSelectWorkspace = useCallback((group: { workspaceId: string; rows: SessionSummary[] }): void => {
+    setSelectedIds((previous) => {
+      const next = new Set(previous)
+      const selectable = group.rows.filter((session) => !session.running && session.id !== list.current)
+      const allSelected = selectable.length > 0 && selectable.every((session) => next.has(session.id))
+      for (const session of selectable) {
+        if (allSelected) next.delete(session.id)
+        else next.add(session.id)
+      }
+      return next
+    })
+  }, [list.current])
+
+  const handleBatchDelete = useCallback(async (): Promise<void> => {
+    const ids = [...selectedIds]
+    if (ids.length === 0) return
+    if (!window.confirm(strings.batchDeleteConfirm.replace('{count}', String(ids.length)))) return
+    setNotice(null)
+    let okCount = 0
+    let failCount = 0
+    const failedTitles: string[] = []
+    for (const sessionId of ids) {
+      const title = list.byId[sessionId as SessionId]?.displayTitle ?? sessionId
+      saveTitle(sessionId, title)
+      try {
+        const response = await fetch(DELETE_ROUTE, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sessionId }),
+        })
+        const data = (await response.json().catch(() => ({}))) as ActionResultResponse
+        if (!response.ok || data.ok !== true) throw new Error(data.error ?? `HTTP ${response.status}`)
+        okCount += 1
+      } catch (error) {
+        failCount += 1
+        const code = error instanceof Error ? error.message : ''
+        const friendly = code === 'session-live' ? strings.liveError : code === 'session-not-found' ? strings.notFoundError : ''
+        failedTitles.push(friendly !== '' ? `${title} (${friendly})` : code !== '' ? `${title} (${code})` : title)
+      }
+    }
+    setSelectedIds(new Set())
+    await loadTrash()
+    if (failCount === 0) {
+      showNotice({ kind: 'ok', text: strings.batchDeleted.replace('{count}', String(okCount)) })
+    } else {
+      const detail = failedTitles.slice(0, 3).join('、') + (failedTitles.length > 3 ? '…' : '')
+      showNotice({ kind: 'error', text: strings.batchFailed.replace('{msg}', `${okCount}/${ids.length} 成功，失败 ${failCount} 个（${detail}）`) })
+    }
+    // Same as single delete: drop deleted sessions from the retained summaries.
+    void (sessions as unknown as { refresh?: () => Promise<unknown> }).refresh?.()
+  }, [selectedIds, strings, list.byId, loadTrash, showNotice, sessions])
 
   const handleRestore = useCallback(async (sessionId: string, title: string): Promise<void> => {
     if (!window.confirm(strings.restoreConfirm.replace('{title}', title))) return
@@ -1496,6 +1647,15 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       'data-archived': isArchived || undefined,
       'data-stats-open': statsOpen || undefined,
     },
+      createElement('input', {
+        type: 'checkbox',
+        className: 'dsh-delete-session__checkbox',
+        checked: selectedIds.has(session.id),
+        disabled: isRunning || busy,
+        title: protectedReason !== '' ? protectedReason : strings.select,
+        'aria-label': strings.select,
+        onChange: () => toggleSelected(session.id),
+      }),
       createElement('div', { className: 'dsh-delete-session__row-main' },
         createElement('div', { className: 'dsh-delete-session__row-title', title: session.displayTitle },
           createElement('span', { className: 'dsh-delete-session__row-title-text' }, session.displayTitle),
@@ -1645,6 +1805,29 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         children: newestFirst ? strings.sortNewest : strings.sortOldest,
       }),
       createElement('span', { className: 'dsh-delete-session__count' }, strings.count(activeRows.length)),
+    ),
+    activeRows.length > 0 && createElement('div', { className: 'dsh-delete-session__batch' },
+      createElement('label', { className: 'dsh-delete-session__batch-select-all' },
+        createElement('input', {
+          type: 'checkbox',
+          checked: activeRows.some((session) => !session.running && session.id !== list.current)
+            && activeRows.every((session) => session.running || session.id === list.current || selectedIds.has(session.id)),
+          onChange: () => toggleSelectAll(),
+          'aria-label': strings.selectAll,
+        }),
+        createElement('span', null, strings.selectAll),
+      ),
+      createElement('span', { className: 'dsh-delete-session__batch-count' }, strings.selectedCount(selectedIds.size)),
+      createElement(Button, {
+        className: 'dsh-row-action dsh-row-action--danger',
+        variant: 'outline',
+        size: 'sm',
+        icon: createElement(IconTrashOutline16, { size: 16 }),
+        disabled: selectedIds.size === 0,
+        title: strings.batchDelete,
+        onClick: () => void handleBatchDelete(),
+        children: strings.batchDelete,
+      }),
     ),
     notice !== null && createElement('div', {
       className: `dsh-delete-session__notice dsh-delete-session__notice--${notice.kind}`,
@@ -1837,7 +2020,7 @@ export function apply(ctx: ClientContext): void {
 
   // The conversation header's right-aligned utilities row (official slot that
   // also hosts the Session log button). Order, left to right:
-  //   对话管理 (-40 host) → 对话管理按钮 (-30) → 回收站按钮 (-20) → 删除本对话 (-10) → Session log (0)
+  //   对话管理 (-40 host) → 对话管理按钮 (-30) → 删除本对话 (-10) → Session log (0)
   ctx.slots.inject('conversation.session.header.utilities', () => {
     const common = () => ({ api, sessions })
     const disposers = [
@@ -1853,12 +2036,6 @@ export function apply(ctx: ClientContext): void {
         order: -30,
         inject: common,
       }, HeaderManageButton),
-      ctx.slots.register({
-        name: 'conversation.session.header.utilities',
-        id: 'dsh-delete-session-trash',
-        order: -20,
-        inject: common,
-      }, HeaderTrashButton),
       ctx.slots.register({
         name: 'conversation.session.header.utilities',
         id: 'dsh-delete-session',
@@ -2128,21 +2305,6 @@ function HeaderManageButton(_props: DrawerInjected): ReactElement {
       setDrawer({ open: true, view: 'manage' })
     },
     children: strings.manageButton,
-  })
-}
-
-/** "回收站" header button: open the drawer with the trash expanded. */
-function HeaderTrashButton(_props: DrawerInjected): ReactElement {
-  const strings = stringsOf()
-  return createElement('button', {
-    type: 'button',
-    'data-dsh-header-button': '',
-    'data-dsh-header-trash': '',
-    title: strings.trashButton,
-    onClick: () => {
-      setDrawer({ open: true, view: 'trash' })
-    },
-    children: strings.trashButton,
   })
 }
 
@@ -2541,6 +2703,15 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
               void handleFork(row.sessionId)
             },
           }, strings.fork),
+          createElement('button', {
+            type: 'button',
+            className: 'dsh-delete-session__more-item dsh-delete-session__more-item--danger',
+            disabled: row.running || busy,
+            onClick: () => {
+              setMoreOpenId(null)
+              void handleDelete(row.sessionId, row.title)
+            },
+          }, strings.delete),
         ),
       ),
       row.archived && createElement(Button, {
