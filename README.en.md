@@ -26,24 +26,6 @@ Possibly the most feature-complete DSH session manager plugin out there: full se
 - Subagent sessions can be deleted when not running: even orphaned ones (whose parent session is already deleted) can be cleaned up directly from Session Manager
 - UI language follows the page language (Chinese / English)
 
-## Screenshots
-
-The Settings "Session Manager" section (workspace groups, row actions and trash):
-
-![Session Manager settings section](assets/settings-section.png)
-
-Conversation header shortcuts (Session Manager / Trash / Delete this session):
-
-![Conversation header shortcuts](assets/header-buttons.png)
-
-The session management drawer (workspace groups, pin to keep open, outside-click to close):
-
-![Session management drawer](assets/session-drawer.png)
-
-The "Context compaction threshold" in General settings (17%–90% with slider scale):
-
-![Context compaction threshold](assets/general-settings.png)
-
 ## Install
 
 ### From GitHub
@@ -66,6 +48,24 @@ dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.1.9.tgz
 ```
 
 After installing, **restart** `dsh web` (the host plugin and the served client bundle load at startup).
+
+## Screenshots
+
+The Settings "Session Manager" section (workspace groups, row actions and trash):
+
+![Session Manager settings section](assets/settings-section.png)
+
+Conversation header shortcuts (Session Manager / Trash / Delete this session):
+
+![Conversation header shortcuts](assets/header-buttons.png)
+
+The session management drawer (workspace groups, pin to keep open, outside-click to close):
+
+![Session management drawer](assets/session-drawer.png)
+
+The "Context compaction threshold" in General settings (17%–90% with slider scale):
+
+![Context compaction threshold](assets/general-settings.png)
 
 ## Usage
 

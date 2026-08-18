@@ -26,24 +26,6 @@
 - 子代理（subagent）会话支持删除（非运行中）：即使主会话已删除、子代理成为「孤儿」，也能在会话管理中直接清理
 - 中英文界面自适应（跟随页面语言）
 
-## 截图
-
-设置页「会话管理」分栏（工作区分组、行操作与回收站）：
-
-![设置页会话管理](assets/settings-section.png)
-
-对话顶部快捷入口（对话管理 / 回收站 / 删除本对话）：
-
-![对话顶部快捷入口](assets/header-buttons.png)
-
-会话管理抽屉（工作区分组、图钉固定、点击外部收起）：
-
-![会话管理抽屉](assets/session-drawer.png)
-
-通用设置「上下文压缩阈值」（17%–90%，滑块刻度）：
-
-![上下文压缩阈值](assets/general-settings.png)
-
 ## 安装
 
 ### 从 GitHub
@@ -66,6 +48,24 @@ dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.1.9.tgz
 ```
 
 安装完成后**重启** `dsh web`（host 插件与客户端 bundle 需要重启加载）。
+
+## 截图
+
+设置页「会话管理」分栏（工作区分组、行操作与回收站）：
+
+![设置页会话管理](assets/settings-section.png)
+
+对话顶部快捷入口（对话管理 / 回收站 / 删除本对话）：
+
+![对话顶部快捷入口](assets/header-buttons.png)
+
+会话管理抽屉（工作区分组、图钉固定、点击外部收起）：
+
+![会话管理抽屉](assets/session-drawer.png)
+
+通用设置「上下文压缩阈值」（17%–90%，滑块刻度）：
+
+![上下文压缩阈值](assets/general-settings.png)
 
 ## 使用
 
