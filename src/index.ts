@@ -34,6 +34,8 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-storage-domain'
+// Type-only: brings the ctx.agentPresets service merge into this program.
+import type {} from '@deepseek-ai/dsh-agent-presets'
 // Type-only: brings the ctx.loader merge into this program.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
@@ -46,7 +48,15 @@ import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 
 export const name = 'dsh-session-manager'
-export const inject = ['webServer', 'sessionPersistence', 'workspaceRegistry', 'agents', 'storageDomain', 'loader']
+export const inject = [
+  'webServer',
+  'sessionPersistence',
+  'workspaceRegistry',
+  'agents',
+  'storageDomain',
+  'loader',
+  'agentPresets',
+]
 
 const ROUTE_PREFIX = '/dsh-session-manager'
 const MAX_BODY_BYTES = 64 * 1024
@@ -130,28 +140,39 @@ function parseSessionId(body: unknown): SessionId | undefined {
 /**
  * In web mode the official composition disables the root `compaction-basic`
  * entry; the live compaction engine lives inside the agent preset's isolated
- * realm (`~/.dsh/.agent-presets/<preset>/agent.cordis.yml`, the `compaction`
- * group). Reading and writing the threshold therefore targets that file —
- * per-preset, i.e. per-session — line-based so user comments stay intact.
+ * realm (the preset's `agent.cordis.yml`, in the `compaction` group). The
+ * agent-presets service resolves the real file, including system presets that
+ * ship with DSH; user preset files are updated line-by-line so comments stay
+ * intact, while system preset files remain read-only.
  */
 
-/** Agent preset composition file name. */
-const PRESET_COMPOSITION_FILE = 'agent.cordis.yml'
-
-/** Resolve the default agent preset name from the loader's `agent-presets` entry. */
-function defaultPresetName(ctx: Context): string {
-  for (const candidate of ctx.loader.entries()) {
-    if (candidate.options.id === 'agent-presets') {
-      const def = (candidate.options.config as { default?: unknown } | undefined)?.default
-      if (typeof def === 'string' && def.length > 0) return def
-    }
-  }
-  return 'standard'
+interface ResolvedPresetComposition {
+  path: string
+  trust: 'system' | 'user'
 }
 
-/** Absolute path of one preset's agent composition file. */
-function presetPath(name: string): string {
-  return dshHomePath('.agent-presets', name, PRESET_COMPOSITION_FILE)
+/** Resolve the active default preset through the official agent-presets service. */
+function defaultPresetName(ctx: Context): string {
+  const presets = ctx.get('agentPresets') as { defaultId?: unknown }
+  if (typeof presets.defaultId !== 'string' || presets.defaultId.length === 0) {
+    throw new Error('agent presets default id unavailable')
+  }
+  return presets.defaultId
+}
+
+/** Resolve the real composition path and trust instead of assuming a user path. */
+async function resolvePresetComposition(ctx: Context, name: string): Promise<ResolvedPresetComposition> {
+  const presets = ctx.get('agentPresets') as {
+    resolve(id?: string): Promise<{ path?: unknown; trust?: unknown }>
+  }
+  const preset = await presets.resolve(name)
+  if (typeof preset.path !== 'string' || preset.path.length === 0) {
+    throw new Error(`agent preset composition path unavailable: ${name}`)
+  }
+  if (preset.trust !== 'system' && preset.trust !== 'user') {
+    throw new Error(`agent preset trust unavailable: ${name}`)
+  }
+  return { path: preset.path, trust: preset.trust }
 }
 
 /** Read `thresholdRatio` from the preset's compaction-basic block, if any. */
@@ -216,8 +237,7 @@ function upsertPresetRatio(content: string, newline: string, ratio: number): str
 }
 
 /** Read the preset file, atomically write the updated content back. */
-async function writePresetComposition(ctx: Context, name: string, ratio: number): Promise<void> {
-  const path = presetPath(name)
+async function writePresetComposition(path: string, ratio: number): Promise<void> {
   let content: string
   try {
     content = await readFile(path, 'utf8')
@@ -620,9 +640,10 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
 
     // GET/POST /dsh-session-manager/compaction-threshold — read or update the
     // user-set threshold. The value is persisted in this plugin's storage
-    // domain, written into the default preset's composition file as well, and
-    // enforced on EVERY session's engine at each step boundary (any preset,
-    // created at any time, survives restarts).
+    // domain and written to a user preset's composition file when available.
+    // System preset files are read-only, so they are never modified; the
+    // threshold is still enforced on EVERY session's engine at each step
+    // boundary and survives restarts through the storage domain.
     ctx.webServer.register({
       kind: 'exact',
       path: `${ROUTE_PREFIX}/compaction-threshold`,
@@ -634,7 +655,8 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
           if (ratio === null) {
             try {
               const name = defaultPresetName(ctx)
-              const content = await readFile(presetPath(name), 'utf8')
+              const preset = await resolvePresetComposition(ctx, name)
+              const content = await readFile(preset.path, 'utf8')
               ratio = parsePresetRatio(content) ?? 0.8
             } catch {
               ratio = 0.8
@@ -659,7 +681,10 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
           await withMutationLock(async () => {
             await setConfiguredThreshold(ratio)
             const name = defaultPresetName(ctx)
-            await writePresetComposition(ctx, name, ratio)
+            const preset = await resolvePresetComposition(ctx, name)
+            if (preset.trust !== 'system') {
+              await writePresetComposition(preset.path, ratio)
+            }
             await applyThresholdToLiveAgents(ctx, ratio)
             respond(res, 200, { ok: true })
           })

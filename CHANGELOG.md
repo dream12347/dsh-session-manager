@@ -1,3 +1,13 @@
+## v0.2.1 (2026-08-19)
+
+### 修复
+
+- **修复非默认 Agent 预设下保存压缩阈值报错**：通过 DSH 官方 `agentPresets` 服务解析预设的真实 composition 文件路径；系统预设不再尝试写入只读安装目录，用户预设仍正常持久化（[#9](https://github.com/dream12347/dsh-session-manager/issues/9)）
+
+### 致谢
+
+- 感谢 [Chen5173](https://github.com/Chen5173) 提交 Issue [#9](https://github.com/dream12347/dsh-session-manager/issues/9) 并提供详细的根因分析与复现信息
+
 # 更新日志 (Changelog)
 
 ## v0.2.0 (2026-08-19)

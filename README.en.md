@@ -31,7 +31,7 @@ Possibly the most feature-complete DSH session manager plugin out there: full se
 ### From GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.2.0'
+dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.2.1'
 ```
 
 ### From a local directory
@@ -44,7 +44,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-session-manager
 
 ```sh
 pnpm pack
-dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.2.0.tgz
+dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.2.1.tgz
 ```
 
 After installing, **restart** `dsh web` (the host plugin and the served client bundle load at startup).
@@ -106,7 +106,7 @@ The dot next to a session's title shows one of four states: **blue** = manually 
 | Client | `src/client/index.ts` registers the dedicated section through the official `settings.section` slot, lists sessions (with the archived group) from the `useSessions` / `useWorkspaces` standard feeds, and calls the host routes to delete/restore/purge; the drawer subscribes to the live session list via `sessions.list` (an ObservableSnapshot); removed session ids are remembered in browser localStorage so a live session does not "resurrect" after refresh |
 
 - **Unread mechanism**: the manual unread set lives in browser localStorage under the shared key `dsh.session-unread.v1` (format `{version:1, ids:[]}` — interoperable with other session-manager plugins); the official dots (amber/green/spinner) are driven by the official `SessionSummary` fields `pendingInteraction` / `completed` / `running`, and clicking one marks it read in place by clearing the official reminder (no session open); the sidebar blue dots are decorated onto the official tree rows by a MutationObserver (official row elements carry no session-id attribute, so rows are matched by title text)
-- **Global threshold**: stored in the storage domain (`dsh_delete_session` → `thresholdRatio`) and in the current agent preset's `agent.cordis.yml`; the host writes the threshold into every preset's compaction-engine config in an `agent/pre-step` hook, so it applies to all presets uniformly and survives restarts
+- **Global threshold**: stored in the storage domain (`dsh_delete_session` → `thresholdRatio`); when the default agent preset is user-owned, it is also written to the `agent.cordis.yml` resolved by the agent-presets service, while system preset files remain read-only. The host writes the threshold into every preset's compaction-engine config in an `agent/pre-step` hook, so it applies to all presets uniformly and survives restarts
 - Deletion goes through the official archive channel first: the sidebar hides the session immediately
 - Trash entries persist in the DSH storage domain (`~/.dsh/storages/dsh_delete_session.json`); files live in `~/.dsh/dsh-delete-session-trash/`
 - Workspace accounting (`sessionIds` slots / the archive set) is reconciled automatically on the next startup when the registry rebuilds its header index — no manual file editing

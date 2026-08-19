@@ -31,7 +31,7 @@
 ### 从 GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.2.0'
+dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.2.1'
 ```
 
 ### 从本地目录
@@ -44,7 +44,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-session-manager
 
 ```sh
 pnpm pack
-dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.2.0.tgz
+dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.2.1.tgz
 ```
 
 安装完成后**重启** `dsh web`（host 插件与客户端 bundle 需要重启加载）。
@@ -106,7 +106,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.2.0.tgz
 | Client | `src/client/index.ts` 通过官方 `settings.section` 插槽注册独立分栏，用 `useSessions` / `useWorkspaces` 标准数据源列出会话（含归档/回收站分组），删除/恢复/彻底删除调用 host 路由；抽屉通过 `sessions.list`（ObservableSnapshot）订阅实时列表；彻底删除的会话 id 记录在浏览器 localStorage，避免 live 会话删除后刷新「复活」 |
 
 - **未读机制**：手动未读集保存在浏览器 localStorage 的共享 key `dsh.session-unread.v1`（`{version:1, ids:[]}` 格式，与其他会话管理插件互通）；官方状态点（琥珀/绿色/转圈）由官方 `SessionSummary` 的 `pendingInteraction` / `completed` / `running` 字段驱动，点击就地已读通过清除官方提醒标记实现，无需打开会话；侧边栏的蓝色未读点由 MutationObserver 装饰官方树节点（官方行元素没有会话 id 属性，故按标题文本匹配）
-- **压缩阈值全局生效**：保存在存储域（`dsh_delete_session` 的 `thresholdRatio`）与当前 Agent 预设的 `agent.cordis.yml`；host 在每个 `agent/pre-step` 钩子里把阈值写入所有预设的压缩引擎配置，因此对所有 Agent 预设的会话统一生效，重启后依然有效
+- **压缩阈值全局生效**：保存在存储域（`dsh_delete_session` 的 `thresholdRatio`）；如果默认 Agent 预设是用户预设，则同时写入 agent-presets 服务解析出的 `agent.cordis.yml`，系统预设文件保持只读。host 在每个 `agent/pre-step` 钩子里把阈值写入所有预设的压缩引擎配置，因此对所有 Agent 预设的会话统一生效，重启后依然有效
 - 删除时先走官方归档通道：侧边栏立即隐藏该会话
 - 回收站条目持久化在 DSH 存储域（`~/.dsh/storages/dsh_delete_session.json`），文件在 `~/.dsh/dsh-delete-session-trash/`
 - 工作区记账（`sessionIds` 槽位）在下次启动时由 registry 重建索引自动对账，无需手动编辑文件
