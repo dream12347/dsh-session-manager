@@ -205,6 +205,14 @@ function trashEntryTitle(
   return liveTitle ?? titles[entry.sessionId] ?? entry.sessionId
 }
 
+/**
+ * Pure menu-injection helpers live in ./menu-injection.ts (dependency-free so
+ * they stay unit-testable without pulling in the browser UI chain); import
+ * them for the injection effect and re-export for the bundle's public surface.
+ */
+import { findSessionByTitle, isSessionMenu } from './menu-injection.ts'
+export { findSessionByTitle, isSessionMenu } from './menu-injection.ts'
+
 const STYLE = `
 [data-dsh-delete-session] {
   display: flex;
@@ -790,6 +798,35 @@ const STYLE = `
   line-height: 1.5;
   margin-bottom: 8px;
 }
+/* Injected "delete" item inside the OFFICIAL sidebar session-row menu. The
+   official menu styles its own [role="menuitem"] buttons via runtime CSS
+   modules with obfuscated class names, so this layer carries a complete,
+   self-contained item style (kept visually close to the official item). */
+.dsh-session-manager__menu-delete {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  box-sizing: border-box;
+  color: var(--dsw-alias-state-error-primary, #e5484d);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: 13px;
+  gap: 8px;
+  line-height: 20px;
+  padding: 6px 10px;
+  text-align: left;
+  width: 100%;
+}
+.dsh-session-manager__menu-delete:hover:not(:disabled) {
+  background: rgba(229, 72, 77, .12);
+}
+.dsh-session-manager__menu-delete:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
 `
 
 interface SessionManagerProps {
@@ -1049,6 +1086,38 @@ function stringsOf() {
           return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
         },
       }
+}
+
+/**
+ * Delete (move to trash) a session from the OFFICIAL sidebar row menu.
+ * Mirrors the settings-panel handleDelete chain: confirm → POST DELETE_ROUTE
+ * → refresh the official list so the row leaves the sidebar. Standalone from
+ * the panel component because the injected menu item lives outside React.
+ */
+async function deleteFromMenu(
+  session: SessionSummary,
+  title: string,
+  sessions: import('@deepseek-ai/dsh-client-runtime/client').ISessions,
+): Promise<void> {
+  const strings = stringsOf()
+  if (!window.confirm(strings.confirm.replace('{title}', title))) return
+  saveTitle(session.id, title)
+  try {
+    const response = await fetch(DELETE_ROUTE, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: session.id }),
+    })
+    const data = (await response.json().catch(() => ({}))) as ActionResultResponse
+    if (!response.ok || data.ok !== true) throw new Error(data.error ?? `HTTP ${response.status}`)
+    // The caller dispatches Escape to close the official menu through its own
+    // React state; the deleted row leaves the sidebar on the next refresh.
+    void (sessions as unknown as { refresh?: () => Promise<unknown> }).refresh?.()
+  } catch (error) {
+    const code = error instanceof Error ? error.message : ''
+    const friendly = code === 'session-live' ? strings.liveError : code === 'session-not-found' ? strings.notFoundError : ''
+    window.alert(strings.failed.replace('{title}', title) + (friendly !== '' ? friendly : code !== '' ? ` (${code})` : ''))
+  }
 }
 
 function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceActions, close }: SessionManagerProps): ReactElement {
@@ -1986,6 +2055,99 @@ export function apply(ctx: ClientContext): void {
       document.querySelectorAll(`.${DOT_CLASS}`).forEach((dot) => dot.remove())
     }
   }, 'dsh-session-manager: sidebar unread dots')
+
+  // Inject a "delete" entry into the OFFICIAL sidebar session-row menu
+  // (rename / fork / archive are hard-coded by ui-workspace with no extension
+  // slot). The menu is portal-rendered to <body>, so the injection watches for
+  // an open `[role="menu"]`, matches the row whose ellipsis button was clicked
+  // by its title text (rows carry no session id), and appends the entry.
+  ctx.effect(() => {
+    if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return
+    const MENU_CLASS = 'dsh-session-manager__menu-delete'
+    // Title of the session row whose ellipsis button opened the menu.
+    let pendingTitle: string | null = null
+    // The menu instance we already injected into (menus are re-created on each
+    // open, so identity comparison is enough to avoid duplicate entries).
+    let injectedMenu: HTMLElement | null = null
+    let frame = 0
+
+    const injectDelete = (menu: HTMLElement): void => {
+      if (injectedMenu === menu || pendingTitle === null) return
+      const snapshot = sessions.list.getSnapshot()
+      const session = findSessionByTitle(snapshot, pendingTitle)
+      if (session === undefined) return // Workspace row (no matching session): skip.
+      const itemTexts = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+        .map((item) => item.textContent ?? '')
+      // Discriminate on the OFFICIAL fork label ("分叉会话" / "Fork session"),
+      // not stringsOf().fork ("新聊天中继续" — the plugin's own row button).
+      const forkLabel = isZh() ? '分叉会话' : 'Fork session'
+      if (!isSessionMenu(itemTexts, forkLabel)) return // Not a session menu.
+      const item = document.createElement('button')
+      item.type = 'button'
+      item.setAttribute('role', 'menuitem')
+      item.className = MENU_CLASS
+      item.textContent = stringsOf().delete
+      const running = session.running
+      if (running) item.setAttribute('disabled', '')
+      item.title = running ? stringsOf().running : stringsOf().delete
+      item.addEventListener('click', (event) => {
+        event.stopPropagation()
+        // Close the official menu through its own Escape handler (the injected
+        // entry is not part of the official items, so onSelect never fires and
+        // the menu would otherwise stay open).
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        void deleteFromMenu(session, pendingTitle ?? session.displayTitle, sessions)
+      })
+      // The official list renders its items inside a viewport container (first
+      // child of the `[role="menu"]` list); append there so the injected entry
+      // participates in the same scrolling context as the official items.
+      const viewport = menu.firstElementChild ?? menu
+      viewport.appendChild(item)
+      injectedMenu = menu
+    }
+
+    const schedule = (): void => {
+      if (frame !== 0) return
+      frame = window.requestAnimationFrame(() => {
+        frame = 0
+        // Menu portal renders directly under <body>.
+        for (const menu of document.querySelectorAll<HTMLElement>('body > [role="menu"]')) {
+          injectDelete(menu)
+        }
+      })
+    }
+    const observer = new MutationObserver(schedule)
+    observer.observe(document.body, { childList: true, subtree: true })
+
+    // Capture the ellipsis click before the official handler toggles the menu
+    // open: record the clicked row's title so the injection can resolve the
+    // session once the menu appears.
+    const onDocClick = (event: MouseEvent): void => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      const button = target.closest<HTMLElement>('[role="treeitem"] button[aria-label]')
+      if (button === null) return
+      const row = button.closest<HTMLElement>('[role="treeitem"]')
+      if (row === null) return
+      pendingTitle = null
+      for (const span of row.querySelectorAll<HTMLElement>('span')) {
+        const text = span.textContent?.trim() ?? ''
+        if (text !== '' && findSessionByTitle(sessions.list.getSnapshot(), text) !== undefined) {
+          pendingTitle = text
+          break
+        }
+      }
+    }
+    document.addEventListener('click', onDocClick, true)
+    schedule()
+    return () => {
+      observer.disconnect()
+      document.removeEventListener('click', onDocClick, true)
+      if (frame !== 0) window.cancelAnimationFrame(frame)
+      document.querySelectorAll(`.${MENU_CLASS}`).forEach((item) => item.remove())
+      injectedMenu = null
+    }
+  }, 'dsh-session-manager: sidebar row menu delete')
   const t = ctx.locale.bind(NS)
 
   // A General-settings preference row: the context compaction threshold of

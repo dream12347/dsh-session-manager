@@ -9,6 +9,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
         [NS]: 'nav';
     }
 }
+export { findSessionByTitle, isSessionMenu } from './menu-injection.ts';
 export declare function apply(ctx: ClientContext): void;
 interface ClientContext {
     slots: SlotRegistry;
@@ -21,5 +22,4 @@ interface ClientContext {
         bind(namespace: string): (key: 'nav') => string;
     };
 }
-export {};
 //# sourceMappingURL=index.d.ts.map
