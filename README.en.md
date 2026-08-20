@@ -31,7 +31,7 @@ Possibly the most feature-complete DSH session manager plugin out there: full se
 ### From GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.2.1'
+dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.2.2'
 ```
 
 ### From a local directory
@@ -44,7 +44,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-session-manager
 
 ```sh
 pnpm pack
-dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.2.1.tgz
+dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.2.2.tgz
 ```
 
 After installing, **restart** `dsh web` (the host plugin and the served client bundle load at startup).

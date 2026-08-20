@@ -31,6 +31,7 @@ export declare const name = "dsh-session-manager";
 export declare const inject: string[];
 /** Maximum trash entries kept; the oldest overflow is purged automatically. */
 export declare const TRASH_LIMIT = 10;
+export declare function openFolderCommand(platform: NodeJS.Platform): string;
 declare const trashEntrySchema: z.ZodObject<{
     sessionId: z.ZodString;
     cwd: z.ZodOptional<z.ZodString>;

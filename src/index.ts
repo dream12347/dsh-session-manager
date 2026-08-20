@@ -70,6 +70,26 @@ const SESSION_ID_RE = /^(session-)?[0-9a-fA-F-]+$/
 /** Maximum trash entries kept; the oldest overflow is purged automatically. */
 export const TRASH_LIMIT = 10
 
+export function openFolderCommand(platform: NodeJS.Platform): string {
+  if (platform === 'win32') return 'explorer'
+  if (platform === 'darwin') return 'open'
+  return 'xdg-open'
+}
+
+function openFolder(path: string, platform: NodeJS.Platform = process.platform): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(openFolderCommand(platform), [path], {
+      detached: true,
+      stdio: 'ignore',
+    })
+    child.once('error', reject)
+    child.once('spawn', () => {
+      child.unref()
+      resolve()
+    })
+  })
+}
+
 const trashEntrySchema = z.object({
   sessionId: z.string(),
   cwd: z.string().optional(),
@@ -730,11 +750,7 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
           if (dir === undefined || !existsSync(dir)) {
             return respond(res, 404, { ok: false, error: 'folder-not-found' })
           }
-          if (process.platform === 'win32') {
-            spawn('explorer', [dir], { detached: true, stdio: 'ignore' }).unref()
-          } else {
-            spawn('xdg-open', [dir], { detached: true, stdio: 'ignore' }).unref()
-          }
+          await openFolder(dir)
           respond(res, 200, { ok: true })
         } catch (error) {
           ctx.logger.warn('[dsh-session-manager] open-folder failed:', error)

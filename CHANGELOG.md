@@ -1,3 +1,13 @@
+## v0.2.2 (2026-08-20)
+
+### 修复
+
+- **macOS 打开日志目录**：在 macOS 使用系统 `open` 命令，不再错误调用 Linux 的 `xdg-open`；同时捕获文件管理器命令启动失败，避免未处理的 `ENOENT` 导致 DSH web 进程崩溃（[#10](https://github.com/dream12347/dsh-session-manager/issues/10)）
+
+### 致谢
+
+- 感谢 [cmj799](https://github.com/cmj799) 提交 Issue [#10](https://github.com/dream12347/dsh-session-manager/issues/10)，并提供清晰的错误日志、环境信息和修复建议
+
 ## v0.2.1 (2026-08-19)
 
 ### 修复

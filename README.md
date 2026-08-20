@@ -31,7 +31,7 @@
 ### 从 GitHub
 
 ```sh
-dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.2.1'
+dsh plugin --profile web add 'github:dream12347/dsh-session-manager#v0.2.2'
 ```
 
 ### 从本地目录
@@ -44,7 +44,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-session-manager
 
 ```sh
 pnpm pack
-dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.2.1.tgz
+dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.2.2.tgz
 ```
 
 安装完成后**重启** `dsh web`（host 插件与客户端 bundle 需要重启加载）。
