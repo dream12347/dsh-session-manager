@@ -121,7 +121,7 @@ The dot next to a session's title shows one of four states: **blue** = manually 
 
 ## Compatibility
 
-Current version targets DSH `0.1.0-rc.6` (depends on the `settings.section` / `settings.general.item` / `conversation.session.header.utilities` slots and the `ctx.sessionPersistence` / `ctx.workspaceRegistry` / `ctx.agents` / `ctx.storageDomain` / `ctx.agentPresets` services). If slots or service APIs change in a future DSH version, the plugin needs a matching update.
+Current version targets DSH `0.1.1-rc.1` (depends on the `settings.section` / `settings.general.item` / `conversation.session.header.utilities` slots and the `ctx.sessionPersistence` / `ctx.workspaceRegistry` / `ctx.agents` / `ctx.storageDomain` / `ctx.agentPresets` services). If slots or service APIs change in a future DSH version, the plugin needs a matching update.
 
 ## Development
 
