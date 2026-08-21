@@ -122,7 +122,7 @@ dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.2.2.tgz
 
 ## 兼容性
 
-当前版本适配 DSH `0.1.0-rc.6`（依赖 `settings.section` / `settings.general.item` / `conversation.session.header.utilities` 插槽与 `ctx.sessionPersistence` / `ctx.workspaceRegistry` / `ctx.agents` / `ctx.storageDomain` / `ctx.agentPresets` 服务）。DSH 版本升级后如插槽或服务 API 变化，需要同步适配。
+当前版本适配 DSH `0.1.1-rc.1`（依赖 `settings.section` / `settings.general.item` / `conversation.session.header.utilities` 插槽与 `ctx.sessionPersistence` / `ctx.workspaceRegistry` / `ctx.agents` / `ctx.storageDomain` / `ctx.agentPresets` 服务）。DSH 版本升级后如插槽或服务 API 变化，需要同步适配。
 
 ## 开发
 
