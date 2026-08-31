@@ -1,0 +1,19 @@
+minimumReleaseAgeExclude:
+  - '@dsh-blue/blue-api@0.1.2-alpha.1'
+  - '@dsh-blue/blue-ui@0.1.2-alpha.1'
+# Pin the whole tree to the 0.1.2-alpha.2 dsh line: `^0.1.2-alpha.2` peer
+# ranges would otherwise float to newer alphas (0.1.2-alpha.3), and a single
+# dsh-session copy keeps the SessionId brand unique across the mixed
+# rc-line client packages.
+overrides:
+  '@deepseek-ai/dsh-agent-presets': 0.1.2-alpha.2
+  '@deepseek-ai/dsh-atomic-write': 0.1.2-alpha.2
+  '@deepseek-ai/dsh-code-runtime': 0.1.2-alpha.2
+  '@deepseek-ai/dsh-scope': 0.1.2-alpha.2
+  '@deepseek-ai/dsh-session': 0.1.2-alpha.2
+  '@deepseek-ai/dsh-settings': 0.1.2-alpha.2
+  '@deepseek-ai/dsh-storage': 0.1.2-alpha.2
+  '@deepseek-ai/dsh-system-prompt': 0.1.2-alpha.2
+  '@deepseek-ai/dsh-timeout': 0.1.2-alpha.2
+  '@deepseek-ai/dsh-user-approval': 0.1.2-alpha.2
+  '@deepseek-ai/dsh-util-values': 0.1.2-alpha.2

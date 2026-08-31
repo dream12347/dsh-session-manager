@@ -3,3 +3,7 @@
 - insert:
     - id: dsh-session-manager
       name: dsh-session-manager
+    # Blue frontend entry (TUI profile): resolves the ./blue export. No inject —
+    # bluePluginHost and sessionManagerV1 are resolved softly inside apply.
+    - id: dsh-session-manager/blue
+      name: dsh-session-manager/blue

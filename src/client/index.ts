@@ -37,9 +37,12 @@ import {
   PURGE_ROUTE,
   RESTORE_ROUTE,
   TRASH_ROUTE,
+  UNREAD_ROUTE,
   type ActionResultResponse,
   type TrashEntry,
   type TrashListResponse,
+  type UnreadListResponse,
+  type UnreadSetRequest,
 } from '../contract.ts'
 
 export const name = 'dsh-session-manager/client'
@@ -64,16 +67,26 @@ const REMOVED_KEY = 'dsh-delete-session.removed'
 /** localStorage key remembering session titles at delete time, so the trash
  * can still show a name once the artifact (and the list row) is gone. */
 const TITLES_KEY = 'dsh-delete-session.titles'
-/** localStorage key for the unread marker set (dsh.session-unread.v1). */
+/** Legacy localStorage key of the unread marker set (dsh.session-unread.v1);
+ * read once at startup for the one-time migration to the host, then removed. */
 const UNREAD_KEY = 'dsh.session-unread.v1'
 
 // Module-level unread state shared by the settings section and the drawer.
-const unreadState: { ids: Set<string> } = { ids: loadUnread() }
+// The host's dsh_delete_session storage domain is the source of truth; this
+// is an in-memory mirror hydrated from (and written through to) the host's
+// unread route.
+const unreadState: { ids: Set<string> } = { ids: new Set() }
 const unreadListeners = new Set<() => void>()
-/** Storage shape: { version: 1, ids: string[] } — the shared format of the
- * dsh.session-unread.v1 key (also used by other session-manager plugins), so
- * marks made in one plugin show up in the others. Legacy bare arrays written
- * by earlier builds are still accepted. */
+// Every unread read/mutation queues behind this tail, so a toggle can never
+// race the initial hydration (or the legacy migration) below.
+let unreadTail: Promise<void> = Promise.resolve()
+function enqueueUnread(operation: () => Promise<void>): void {
+  unreadTail = unreadTail.then(operation)
+}
+/** Read the legacy localStorage marks. Storage shape: { version: 1, ids:
+ * string[] } — the shared format of the dsh.session-unread.v1 key (also used
+ * by other session-manager plugins). Legacy bare arrays written by earlier
+ * builds are still accepted. */
 function loadUnread(): Set<string> {
   try {
     const raw = window.localStorage.getItem(UNREAD_KEY)
@@ -88,20 +101,62 @@ function loadUnread(): Set<string> {
   }
   return new Set()
 }
-function persistUnread(): void {
-  try {
-    window.localStorage.setItem(UNREAD_KEY, JSON.stringify({ version: 1, ids: [...unreadState.ids] }))
-  } catch {
-    // Storage unavailable: in-memory marking still works for this session.
-  }
+function postUnread(sessionId: string, unread: boolean): Promise<void> {
+  return fetch(UNREAD_ROUTE, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sessionId, unread } as UnreadSetRequest),
+  }).then(() => undefined)
+}
+/** Hydrate the unread mirror from the host. Runs the one-time migration
+ * first: legacy localStorage marks are POSTed to the host, then the key is
+ * removed. */
+function hydrateUnread(): void {
+  enqueueUnread(async () => {
+    const legacy = loadUnread()
+    if (legacy.size > 0) {
+      let migrated = true
+      for (const sessionId of legacy) {
+        try {
+          await postUnread(sessionId, true)
+        } catch {
+          // Host unreachable: keep the key so the migration reruns on the
+          // next page load instead of dropping the marks.
+          migrated = false
+          break
+        }
+      }
+      if (migrated) {
+        try {
+          window.localStorage.removeItem(UNREAD_KEY)
+        } catch {
+          // Storage unavailable: the migration reruns on the next page load.
+        }
+      }
+    }
+    try {
+      const response = await fetch(UNREAD_ROUTE)
+      const payload = (await response.json()) as UnreadListResponse
+      if (payload.ok) unreadState.ids = new Set(payload.ids)
+    } catch {
+      // Host unreachable: the (empty) in-memory mirror still works for this page.
+    }
+    unreadListeners.forEach((listener) => listener())
+  })
 }
 function setUnread(sessionId: string, value: boolean): void {
-  const next = new Set(unreadState.ids)
-  if (value) next.add(sessionId)
-  else next.delete(sessionId)
-  unreadState.ids = next
-  persistUnread()
-  unreadListeners.forEach((listener) => listener())
+  enqueueUnread(async () => {
+    const next = new Set(unreadState.ids)
+    if (value) next.add(sessionId)
+    else next.delete(sessionId)
+    unreadState.ids = next
+    unreadListeners.forEach((listener) => listener())
+    try {
+      await postUnread(sessionId, value)
+    } catch {
+      // Host unreachable: the in-memory mark still works for this page.
+    }
+  })
 }
 function markRead(sessionId: string): void {
   if (!unreadState.ids.has(sessionId)) return
@@ -2021,6 +2076,11 @@ export function apply(ctx: ClientContext): void {
 
   // Locale dictionaries: the settings-section navigation label.
   ctx.effect(() => ctx.locale.register(NS, { zh: NAV_ZH, en: NAV_EN }), 'dsh-delete-session: dictionaries')
+
+  // Hydrate the unread mirror from the host (migrating legacy localStorage
+  // marks first). Queued before the auto-read effect below so a selection
+  // change can never mark-read ahead of the hydration.
+  hydrateUnread()
 
   // Mark read when the OFFICIAL selection (sidebar click / any navigation)
   // moves to a manually-unread session.

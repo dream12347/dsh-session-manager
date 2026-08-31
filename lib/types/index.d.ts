@@ -1,11 +1,20 @@
 /**
  * dsh-session-manager host plugin (v0.1.2: trash + restore).
  *
+ * The domain logic lives in the `sessionManagerV1` Cordis service
+ * (src/service.ts); this entry owns the plugin wiring: the storage domain
+ * registration, the agent/pre-step threshold-enforcement hook, and — only
+ * when the host runs a web server — the HTTP routes, which are thin wrappers
+ * over the service (parse body -> call service -> serialize the result).
+ * Blue's TUI profile has no webServer, so routes are skipped there and the
+ * service is consumed through the `sessionManagerV1` inject instead.
+ *
  * Routes:
  *   POST /dsh-session-manager/delete   body: { sessionId }  -> move to trash
  *   POST /dsh-session-manager/restore  body: { sessionId }  -> restore from trash
  *   POST /dsh-session-manager/purge    body: { sessionId }  -> permanently purge
  *   GET  /dsh-session-manager/trash                          -> list trash entries
+ *   GET/POST /dsh-session-manager/unread                     -> read/update unread marks
  *
  * Delete flow (soft delete):
  *  1. Resolve the persisted session; refuse sessions whose agent is actively
@@ -26,19 +35,9 @@
  * Purge flow: remove the artifact directory and the trash entry.
  */
 import type { Context } from '@deepseek-ai/cordis';
-import { z } from 'zod';
+export { openFolderCommand, SessionManagerV1, TRASH_LIMIT } from './service.ts';
+export type { TrashEntry } from './service.ts';
 export declare const name = "dsh-session-manager";
 export declare const inject: string[];
-/** Maximum trash entries kept; the oldest overflow is purged automatically. */
-export declare const TRASH_LIMIT = 10;
-export declare function openFolderCommand(platform: NodeJS.Platform): string;
-declare const trashEntrySchema: z.ZodObject<{
-    sessionId: z.ZodString;
-    cwd: z.ZodOptional<z.ZodString>;
-    originalPath: z.ZodOptional<z.ZodString>;
-    deletedAt: z.ZodNumber;
-}, z.core.$strip>;
-export type TrashEntry = z.infer<typeof trashEntrySchema>;
 export declare function apply(ctx: Context): Promise<() => Promise<void>>;
-export {};
 //# sourceMappingURL=index.d.ts.map

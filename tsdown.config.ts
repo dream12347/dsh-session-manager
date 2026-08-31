@@ -22,6 +22,23 @@ export default defineConfig([
     },
   },
   {
+    // Blue frontend entry (TUI profile): same externality rules as the host
+    // entry — @deepseek-ai AND @dsh-blue packages are provided by the Blue
+    // host profile and must stay external.
+    name: `${PACKAGE_ID}/blue`,
+    entry: { blue: 'src/blue.ts' },
+    outDir: 'lib',
+    format: 'esm',
+    platform: 'node',
+    target: 'es2024',
+    fixedExtension: false,
+    dts: false,
+    clean: false,
+    deps: {
+      onlyBundle: [],
+    },
+  },
+  {
     name: `${PACKAGE_ID}/client`,
     entry: { client: 'src/client/index.ts' },
     outDir: 'lib',

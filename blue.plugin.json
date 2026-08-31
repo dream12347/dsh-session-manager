@@ -1,0 +1,52 @@
+{
+  "$schema": "https://dsh-blue.dev/schema/blue.plugin.v1.schema.json",
+  "schemaVersion": 1,
+  "id": "dsh-session-manager",
+  "entry": "./blue",
+  "api": "^1.0.0-beta.1",
+  "compatibility": {
+    "blue": ">=0.1.2-alpha.1 <0.2.0",
+    "harness": ">=0.1.2-alpha.2 <0.2.0",
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "capabilities": {
+    "required": [
+      {
+        "name": "commands",
+        "version": "^1.0.0",
+        "resources": {
+          "names": [
+            "session-manager",
+            "session-manager.delete",
+            "session-manager.restore",
+            "session-manager.purge",
+            "session-manager.pause",
+            "session-manager.open-folder",
+            "session-manager.threshold"
+          ]
+        }
+      },
+      {
+        "name": "panes",
+        "version": "^1.0.0",
+        "resources": {
+          "placements": ["right", "bottom"]
+        }
+      },
+      {
+        "name": "overlays",
+        "version": "^1.0.0"
+      }
+    ],
+    "optional": [
+      {
+        "name": "status",
+        "version": "^1.0.0"
+      },
+      {
+        "name": "notifications.publish",
+        "version": "^1.0.0"
+      }
+    ]
+  }
+}
