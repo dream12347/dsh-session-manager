@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "dsh-session-manager",
+  "entry": "./lib/blue.js",
+  "api": "^1.0.0-beta.1",
+  "blue": ">=0.1.2-alpha.1 <0.2.0",
+  "harness": ">=0.1.2-alpha.2 <0.2.0",
+  "node": "^22.19.0 || >=24.0.0",
+  "capabilities": [
+    "commands",
+    "panes",
+    "status",
+    "overlays",
+    "notifications.publish"
+  ]
+}
