@@ -17,6 +17,8 @@ export declare const OPEN_FOLDER_ROUTE = "/dsh-session-manager/open-folder";
 export declare const PAUSE_ROUTE = "/dsh-session-manager/pause";
 /** Write the context compaction threshold into the official compaction plugin config. */
 export declare const COMPACTION_THRESHOLD_ROUTE = "/dsh-session-manager/compaction-threshold";
+/** Read (GET) or update (POST) the host-side manual unread marker set. */
+export declare const UNREAD_ROUTE = "/dsh-session-manager/unread";
 /** POST /dsh-session-manager/delete request body. */
 export interface DeleteSessionRequest {
     sessionId: string;
@@ -47,5 +49,55 @@ export interface TrashListResponse {
     entries: TrashEntry[];
     /** Maximum entries kept; the oldest overflow is purged automatically. */
     limit: number;
+}
+/** POST /dsh-session-manager/unread request body. */
+export interface UnreadSetRequest {
+    sessionId: string;
+    unread: boolean;
+}
+/** GET /dsh-session-manager/unread response body. */
+export interface UnreadListResponse {
+    ok: boolean;
+    /** The manually unread session ids. */
+    ids: string[];
+}
+/** One session row of the host-side session list (`sessionManagerV1.list`). */
+export interface SessionListItem {
+    id: string;
+    /** Latest logged title, when the transcript carries one. */
+    title?: string;
+    cwd?: string;
+    createdAt: number;
+    /** Last transcript event time (createdAt for an empty/unreadable log). */
+    updatedAt: number;
+    archived: boolean;
+    running: boolean;
+    inTrash: boolean;
+}
+/** `sessionManagerV1.list` result. */
+export interface SessionListResponse {
+    ok: boolean;
+    sessions: SessionListItem[];
+}
+/** Folded recent-activity statistics for one session (same counting rules as
+ * the web client: turn starts, user/assistant messages, tool calls grouped
+ * by name, and the activity window's first/last event times). */
+export interface SessionStats {
+    turns: number;
+    userMessages: number;
+    assistantMessages: number;
+    toolCalls: {
+        name: string;
+        count: number;
+    }[];
+    startedAt: number;
+    updatedAt: number;
+}
+/** `sessionManagerV1.stats` result. */
+export interface SessionStatsResponse {
+    ok: boolean;
+    stats?: SessionStats;
+    /** Machine-readable failure reason. */
+    error?: string;
 }
 //# sourceMappingURL=contract.d.ts.map
