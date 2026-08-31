@@ -59,10 +59,13 @@ export type { TrashEntry } from './service.ts'
 export const name = 'dsh-session-manager'
 // webServer is deliberately NOT injected: Blue's TUI profile has none, and
 // the routes below are registered only when ctx.get('webServer') resolves.
+// workspaceRegistry is likewise NOT injected: it is mounted by the web-app
+// bundle (@deepseek-ai/dsh-workspace) and does not exist in Blue's TUI
+// composition; the service soft-resolves it and degrades the archive side
+// of delete/restore/list when absent.
 // The loader was never used at runtime (type-only import above).
 export const inject = [
   'sessionPersistence',
-  'workspaceRegistry',
   'agents',
   'storageDomain',
   'agentPresets',

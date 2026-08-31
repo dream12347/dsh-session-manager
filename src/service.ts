@@ -416,8 +416,15 @@ export class SessionManagerV1 extends Service {
 
       try {
         failureCode = 'archive-failed'
-        archiveStarted = true
-        await this.ctx.workspaceRegistry.archiveSession(sessionId)
+        // Soft: workspaceRegistry exists only where dsh-workspace is mounted
+        // (the web composition). Blue's TUI profile has no archive subsystem;
+        // delete degrades to trash entry + artifact move there, and the pane
+        // hides trashed rows via the inTrash flag instead of the archive set.
+        const registry = this.ctx.get('workspaceRegistry')
+        if (registry !== undefined) {
+          archiveStarted = true
+          await registry.archiveSession(sessionId)
+        }
         failureCode = 'delete-failed'
 
         {
@@ -651,7 +658,8 @@ export class SessionManagerV1 extends Service {
    */
   async list(): Promise<SessionListResponse> {
     const headers = await this.ctx.sessionPersistence.list()
-    const archived = new Set<string>(this.ctx.workspaceRegistry.archivedSessionIds)
+    // Soft: no archive subsystem without dsh-workspace (Blue TUI profile).
+    const archived = new Set<string>(this.ctx.get('workspaceRegistry')?.archivedSessionIds ?? [])
     const trashed = new Set(this.getEntries().map((entry) => entry.sessionId))
     const sessions: SessionListItem[] = await Promise.all(headers.map(async (header) => {
       const agent = this.ctx.agents.get(header.id)

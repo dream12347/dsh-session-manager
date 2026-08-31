@@ -6,15 +6,20 @@
  * same sessionManagerV1 service into Blue's renderer-neutral surfaces — a
  * right-lane pane (bottom when narrow), slash commands, a status entry,
  * overlays, and notifications. Both the plugin host and the service are
- * resolved SOFTLY: in the web profile neither this file nor bluePluginHost is
- * present, so a missing host still backs out silently. A missing
+ * resolved SOFTLY: in the web profile bluePluginHost never exists, and the
+ * Blue runtime provides it from a nested bundle realm with no ordering
+ * against this entry, so a missing host is awaited through the same
+ * `internal/service` provide signal rather than aborting (in a profile
+ * without Blue the listener simply never fires). A missing
  * sessionManagerV1 (host plugin not installed/active) no longer aborts
  * registration: the pane renders a placeholder pointing at the fix, the
  * status entry stays empty, and every command fails loudly with
  * BLUE_CAPABILITY_ABSENT. Because the sibling host entry constructs the
  * service inside an async apply, the service may also appear AFTER this
  * apply ran — cordis emits `internal/service` when a binding is provided,
- * and the listener below refreshes both surfaces when ours shows up.
+ * and the listener below refreshes both surfaces when ours shows up
+ * (deferred one microtask: the provide fires from the Service base
+ * constructor, before the subclass fields are assigned).
  *
  * Boundary rules enforced by script/blue-plugin-validate.mjs, kept here
  * deliberately: no renderer globals/JSX/ANSI, and no imports of the
@@ -112,10 +117,27 @@ function serviceAbsent(): BlueResult {
 
 export function apply(ctx: Context): void {
   const host = ctx.get('bluePluginHost') as BluePluginHost | undefined
-  if (host === undefined) {
-    ctx.logger.debug('[dsh-session-manager/blue] bluePluginHost unavailable, skipping Blue registration')
+  if (host !== undefined) {
+    start(ctx, host)
     return
   }
+  // The Blue runtime provides bluePluginHost from the bundle's nested
+  // blue-runtime-private realm; nothing orders that provide against this
+  // entry (inject is deliberately empty so the same row loads in profiles
+  // without Blue). Same signal as the late sessionManagerV1 below: cordis
+  // emits `internal/service` on every provide, so wait for the host instead
+  // of backing out permanently.
+  ctx.logger.debug('[dsh-session-manager/blue] bluePluginHost unavailable at apply; waiting for internal/service')
+  const dispose = ctx.on('internal/service', (name) => {
+    if (name !== 'bluePluginHost') return
+    const late = ctx.get('bluePluginHost') as BluePluginHost | undefined
+    if (late === undefined) return
+    dispose()
+    start(ctx, late)
+  })
+}
+
+function start(ctx: Context, host: BluePluginHost): void {
   // Soft point-in-time lookup; may be undefined here and appear later (see
   // the `internal/service` listener near the bottom of apply).
   let service = ctx.get('sessionManagerV1')
@@ -525,13 +547,20 @@ export function apply(ctx: Context): void {
   // `internal/service` interception hook on every provide, which is the
   // simplest correct signal here: adopt the service and refresh both
   // surfaces (reload() no-ops the data load until then).
+  //
+  // The hook fires from the cordis Service base constructor, i.e. BEFORE the
+  // SessionManagerV1 subclass fields are assigned — touching the instance in
+  // the same tick reads `this.trash` as undefined and the throw aborts boot.
+  // Deferring adoption one microtask lets the constructor finish first.
   ctx.on('internal/service', (name) => {
     if (name !== 'sessionManagerV1' || service !== undefined) return
-    service = ctx.get('sessionManagerV1')
-    if (service === undefined) return
-    state.unread = service.getUnread().ids
-    registerStatus()
-    void reload()
+    queueMicrotask(() => {
+      service = ctx.get('sessionManagerV1')
+      if (service === undefined) return
+      state.unread = service.getUnread().ids
+      registerStatus()
+      void reload()
+    })
   })
 
   // Commands default to the pane's current selection when no sessionId
