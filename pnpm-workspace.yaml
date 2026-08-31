@@ -1,3 +1,6 @@
+minimumReleaseAgeExclude:
+  - '@dsh-blue/blue-api@0.1.2-alpha.1'
+  - '@dsh-blue/blue-ui@0.1.2-alpha.1'
 # Pin the whole tree to the 0.1.2-alpha.2 dsh line: `^0.1.2-alpha.2` peer
 # ranges would otherwise float to newer alphas (0.1.2-alpha.3), and a single
 # dsh-session copy keeps the SessionId brand unique across the mixed

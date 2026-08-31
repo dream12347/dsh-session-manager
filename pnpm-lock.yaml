@@ -49,11 +49,11 @@ importers:
         specifier: ^3.18.1
         version: 3.18.2
       '@dsh-blue/blue-api':
-        specifier: '>=0.1.1-rc.1 <0.2.0-0 || >=0.1.2-alpha.1 <0.2.0-0'
-        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.2)
+        specifier: 0.1.2-alpha.1
+        version: 0.1.2-alpha.1(@deepseek-ai/cordis@4.0.2)
       '@dsh-blue/blue-ui':
-        specifier: '>=0.1.1-rc.1 <0.2.0-0 || >=0.1.2-alpha.1 <0.2.0-0'
-        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.2)
+        specifier: 0.1.2-alpha.1
+        version: 0.1.2-alpha.1(@deepseek-ai/cordis@4.0.2)
       js-yaml:
         specifier: ^4.3.1
         version: 4.3.2
@@ -969,13 +969,13 @@ packages:
   '@deepseek-ai/schemastery@3.18.2':
     resolution: {integrity: sha512-njDtZsznjYxok7KLLlHOPyuv2efdWVbSflAHgztSfbMsg+CVraEoRe2DjOCgClYv3ZCSm7WXoaUkbB/+RY7tWQ==}
 
-  '@dsh-blue/blue-api@0.1.1-rc.2':
-    resolution: {integrity: sha512-hQ5Zo2iklaQYg023guLZ4aKOaugGB5mA+XLi86FjKFKo4LQDjV8me/I657ANISf4cS9yxIeomUNt/lVcMfLVeQ==}
+  '@dsh-blue/blue-api@0.1.2-alpha.1':
+    resolution: {integrity: sha512-+fjwtcXX2PcoVZDcZEmg0QiefjdTDCicJ1JaI+TH3bs34rQ8UYVR8YFGd3ajHwohnO8/NSEGR5OWwG6HrUPCzA==}
     peerDependencies:
-      '@deepseek-ai/cordis': ^4.0.1
+      '@deepseek-ai/cordis': ^4.0.2
 
-  '@dsh-blue/blue-ui@0.1.1-rc.2':
-    resolution: {integrity: sha512-CJuBUyMLEE0UH+GCafrgke6dkHZB2eUBn5EhABI2WzJEWbbUv1+P8Ed+461tWYk1JiW2XC8WyWMCwL0O2C5x0Q==}
+  '@dsh-blue/blue-ui@0.1.2-alpha.1':
+    resolution: {integrity: sha512-UFtv4Br7Y/Rhc7tHpn+649rkUnkc974h3WikggpTqxUtYprYI1ClBESNUpmk33vxG8xjQ+iGz8fSsFDfGt5xMA==}
 
   '@jridgewell/sourcemap-codec@1.6.0':
     resolution: {integrity: sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==}
@@ -3077,16 +3077,16 @@ snapshots:
       '@deepseek-ai/cosmokit': 1.8.3
       '@standard-schema/spec': 1.1.0
 
-  '@dsh-blue/blue-api@0.1.1-rc.2(@deepseek-ai/cordis@4.0.2)':
+  '@dsh-blue/blue-api@0.1.2-alpha.1(@deepseek-ai/cordis@4.0.2)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       ajv: 8.20.0
       semver: 7.8.5
       validate-npm-package-name: 7.0.2
 
-  '@dsh-blue/blue-ui@0.1.1-rc.2(@deepseek-ai/cordis@4.0.2)':
+  '@dsh-blue/blue-ui@0.1.2-alpha.1(@deepseek-ai/cordis@4.0.2)':
     dependencies:
-      '@dsh-blue/blue-api': 0.1.1-rc.2(@deepseek-ai/cordis@4.0.2)
+      '@dsh-blue/blue-api': 0.1.2-alpha.1(@deepseek-ai/cordis@4.0.2)
     transitivePeerDependencies:
       - '@deepseek-ai/cordis'
 
