@@ -28,9 +28,9 @@
  *    (`session-manager.restore <sessionId>` etc.), defaulting to the active
  *    list's selection.
  */
+import { readFileSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  BluePluginApi,
   BluePluginHost,
   BluePublicOverlayHandle,
   BlueResult,
@@ -38,6 +38,7 @@ import type {
   BlueUiEvent,
   BlueUserGesture,
 } from '@dsh-blue/blue-api'
+import { validateBluePluginManifestV1 } from '@dsh-blue/blue-api/protocol/v1'
 import { ui } from '@dsh-blue/blue-ui'
 import type { SessionListItem, SessionStats, TrashEntry } from './contract.ts'
 
@@ -46,7 +47,24 @@ export const name = 'dsh-session-manager/blue'
 // inside apply so the entry also loads in profiles that lack either service.
 export const inject: string[] = []
 
-const PLUGIN_ID = 'dsh-session-manager'
+// The v1 canonical manifest is loaded from the SHIPPED blue.plugin.json at
+// module scope (the official plugin-kit scaffold pattern) so the file the
+// installer validates and the object opened against the host can never drift.
+// A JSON import attribute would be nicer but the manifest lives outside
+// tsconfig's rootDir, so the file is read through import.meta.url instead;
+// the parse+validate below turns any corruption into a load-time TypeError.
+const manifestSource: unknown = JSON.parse(
+  readFileSync(new URL('../blue.plugin.json', import.meta.url), 'utf8'),
+)
+const parsedManifest = validateBluePluginManifestV1(manifestSource)
+if (!parsedManifest.ok) {
+  throw new TypeError(
+    `dsh-session-manager: invalid blue.plugin.json: ${
+      parsedManifest.issues.map((issue) => `${issue.path} ${issue.message}`).join('; ')
+    }`,
+  )
+}
+const manifest = parsedManifest.value
 const PANE_ID = 'session-manager.list'
 const STATUS_ID = 'session-manager.status'
 const LIST_ACTIVE = 'session-manager.list.active'
@@ -88,16 +106,15 @@ export function apply(ctx: Context): void {
     ctx.logger.debug('[dsh-session-manager/blue] sessionManagerV1 unavailable, skipping Blue registration')
     return
   }
-  const opened = host.open(ctx, {
-    id: PLUGIN_ID,
-    api: '^1.0.0-beta.1',
-    capabilities: ['commands', 'panes', 'status', 'overlays', 'notifications.publish'],
-  })
+  const opened = host.open(ctx, manifest)
   if (!opened.ok) {
     ctx.logger.debug(`[dsh-session-manager/blue] host refused the manifest: ${opened.code} ${opened.message}`)
     return
   }
-  const api: BluePluginApi = opened.value
+  for (const unavailable of opened.value.unavailableOptional) {
+    ctx.logger.debug(`[dsh-session-manager/blue] optional capability unavailable: ${unavailable.name} (${unavailable.reason})`)
+  }
+  const api = opened.value.api
 
   const state: PaneState = {
     loaded: false,
