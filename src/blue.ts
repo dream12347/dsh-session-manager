@@ -7,8 +7,14 @@
  * right-lane pane (bottom when narrow), slash commands, a status entry,
  * overlays, and notifications. Both the plugin host and the service are
  * resolved SOFTLY: in the web profile neither this file nor bluePluginHost is
- * present, and if the service has not been constructed yet the entry backs
- * out silently instead of failing the profile.
+ * present, so a missing host still backs out silently. A missing
+ * sessionManagerV1 (host plugin not installed/active) no longer aborts
+ * registration: the pane renders a placeholder pointing at the fix, the
+ * status entry stays empty, and every command fails loudly with
+ * BLUE_CAPABILITY_ABSENT. Because the sibling host entry constructs the
+ * service inside an async apply, the service may also appear AFTER this
+ * apply ran — cordis emits `internal/service` when a binding is provided,
+ * and the listener below refreshes both surfaces when ours shows up.
  *
  * Boundary rules enforced by script/blue-plugin-validate.mjs, kept here
  * deliberately: no renderer globals/JSX/ANSI, and no imports of the
@@ -95,16 +101,26 @@ function internalFailure(message: string): BlueResult {
   return { ok: false, code: 'BLUE_INTERNAL_FAILURE', message }
 }
 
+/** Command-facing failure when the host plugin's service is not there. */
+function serviceAbsent(): BlueResult {
+  return {
+    ok: false,
+    code: 'BLUE_CAPABILITY_ABSENT',
+    message: 'sessionManagerV1 service unavailable: the dsh-session-manager host plugin is not active — confirm it is installed and restart Blue',
+  }
+}
+
 export function apply(ctx: Context): void {
   const host = ctx.get('bluePluginHost') as BluePluginHost | undefined
   if (host === undefined) {
     ctx.logger.debug('[dsh-session-manager/blue] bluePluginHost unavailable, skipping Blue registration')
     return
   }
-  const service = ctx.get('sessionManagerV1')
+  // Soft point-in-time lookup; may be undefined here and appear later (see
+  // the `internal/service` listener near the bottom of apply).
+  let service = ctx.get('sessionManagerV1')
   if (service === undefined) {
-    ctx.logger.debug('[dsh-session-manager/blue] sessionManagerV1 unavailable, skipping Blue registration')
-    return
+    ctx.logger.debug('[dsh-session-manager/blue] sessionManagerV1 unavailable, registering degraded surfaces')
   }
   const opened = host.open(ctx, manifest)
   if (!opened.ok) {
@@ -120,7 +136,7 @@ export function apply(ctx: Context): void {
     loaded: false,
     sessions: [],
     trash: [],
-    unread: service.getUnread().ids,
+    unread: service?.getUnread().ids ?? [],
   }
 
   let pane: { refresh(): BlueResult, setHidden(hidden: boolean): BlueResult } | undefined
@@ -150,11 +166,16 @@ export function apply(ctx: Context): void {
   }
 
   const reload = async (): Promise<void> => {
+    const current = service
+    if (current === undefined) {
+      refreshSurfaces()
+      return
+    }
     try {
-      const list = await service.list()
+      const list = await current.list()
       state.sessions = list.sessions
-      state.trash = service.listTrash().entries
-      state.unread = service.getUnread().ids
+      state.trash = current.listTrash().entries
+      state.unread = current.getUnread().ids
       state.loaded = true
       if (state.selectedId !== undefined && !selectionKnown()) {
         state.selectedId = undefined
@@ -170,11 +191,13 @@ export function apply(ctx: Context): void {
     kind: 'pause' | 'restore' | 'openFolder',
     sessionId: string,
   ): Promise<BlueResult> => {
+    const current = service
+    if (current === undefined) return serviceAbsent()
     const result = kind === 'pause'
-      ? await service.pause(sessionId as SessionId)
+      ? await current.pause(sessionId as SessionId)
       : kind === 'restore'
-        ? await service.restore(sessionId as SessionId)
-        : await service.openFolder(sessionId as SessionId)
+        ? await current.restore(sessionId as SessionId)
+        : await current.openFolder(sessionId as SessionId)
     if (!result.ok) return internalFailure(result.error ?? `${kind} failed`)
     if (kind === 'pause') notify(`已暂停：${labelOf(sessionId)}`)
     else if (kind === 'restore') notify(`已恢复：${labelOf(sessionId)}`, 'success')
@@ -192,6 +215,8 @@ export function apply(ctx: Context): void {
     gesture: BlueUserGesture | undefined,
     sessionId: string | undefined,
   ): BlueResult => {
+    const current = service
+    if (current === undefined) return serviceAbsent()
     if (sessionId === undefined) return rejected('先在面板中选中一个会话，或传入 sessionId 参数')
     if (gesture === undefined || api.overlays === undefined) {
       return rejected('删除/彻底清除的二次确认弹窗需要一次明确的用户操作（user gesture）')
@@ -227,8 +252,8 @@ export function apply(ctx: Context): void {
         }
         if (event.controlId !== 'confirm') return OK
         const action = kind === 'delete'
-          ? await service.delete(sessionId as SessionId)
-          : await service.purge(sessionId as SessionId)
+          ? await current.delete(sessionId as SessionId)
+          : await current.purge(sessionId as SessionId)
         handle?.close()
         if (!action.ok) return internalFailure(action.error ?? `${kind} failed`)
         notify(
@@ -246,6 +271,8 @@ export function apply(ctx: Context): void {
 
   /** Read-only activity statistics overlay (no gesture needed: it captures no input). */
   const openStats = (sessionId: string | undefined): BlueResult => {
+    const current = service
+    if (current === undefined) return serviceAbsent()
     if (sessionId === undefined) return rejected('先在面板中选中一个会话，或传入 sessionId 参数')
     if (api.overlays === undefined) return rejected('overlays capability unavailable')
     let stats: SessionStats | undefined
@@ -281,7 +308,7 @@ export function apply(ctx: Context): void {
     })
     if (!result.ok) return result
     handle = result.value
-    void service.stats(sessionId as SessionId).then((folded) => {
+    void current.stats(sessionId as SessionId).then((folded) => {
       if (folded.ok && folded.stats !== undefined) stats = folded.stats
       else failed = true
       handle?.refresh()
@@ -295,11 +322,13 @@ export function apply(ctx: Context): void {
    * instead of closing.
    */
   const openThreshold = async (gesture: BlueUserGesture | undefined): Promise<BlueResult> => {
+    const current = service
+    if (current === undefined) return serviceAbsent()
     if (gesture === undefined || api.overlays === undefined) {
       return rejected('阈值设置表单需要一次明确的用户操作（user gesture）')
     }
     const overlays = api.overlays
-    const current = await service.getThreshold()
+    const currentThreshold = await current.getThreshold()
     let error: string | undefined
     let handle: BluePublicOverlayHandle | undefined
     const result = overlays.open({
@@ -317,7 +346,7 @@ export function apply(ctx: Context): void {
             kind: 'input',
             id: 'ratio',
             label: '阈值 (%)',
-            value: String(Math.round(current.ratio * 100)),
+            value: String(Math.round(currentThreshold.ratio * 100)),
             placeholder: '80',
             ...(error === undefined ? {} : { error }),
           }],
@@ -341,7 +370,7 @@ export function apply(ctx: Context): void {
           handle?.refresh()
           return OK
         }
-        const saved = await service.setThreshold(percent / 100)
+        const saved = await current.setThreshold(percent / 100)
         if (!saved.ok) return internalFailure(saved.error ?? 'threshold save failed')
         handle?.close()
         notify(`阈值已保存：${percent}%`, 'success')
@@ -390,6 +419,9 @@ export function apply(ctx: Context): void {
   })
 
   const renderPane = () => {
+    if (service === undefined) {
+      return ui.text('宿主插件未激活——请确认 dsh-session-manager 已安装并重启 Blue', { tone: 'muted' })
+    }
     if (!state.loaded) return ui.loader({ message: '正在加载会话…' })
     const selectedIds = state.selectedId === undefined ? [] : [state.selectedId]
     const active = state.sessions
@@ -444,6 +476,7 @@ export function apply(ctx: Context): void {
   }
 
   const renderStatus = () => {
+    if (service === undefined) return null
     const running = state.sessions.filter((session) => session.running).length
     return ui.richText([
       { text: '●', tone: running > 0 ? 'accent' : 'muted' },
@@ -466,17 +499,39 @@ export function apply(ctx: Context): void {
     else ctx.logger.warn(`[dsh-session-manager/blue] pane registration failed: ${registered.code} ${registered.message}`)
   }
 
-  if (api.status !== undefined) {
+  // The status entry is registered only once the service exists: with no
+  // service it would render null anyway ("不占状态栏"), and some host-side
+  // tooling compiles every contribution's render output without filtering
+  // nulls. renderStatus still guards with a null return defensively.
+  const registerStatus = (): void => {
+    if (statusEntry !== undefined || api.status === undefined || service === undefined) return
     const registered = api.status.register({ id: STATUS_ID, render: renderStatus })
     if (registered.ok) statusEntry = registered.value
     else ctx.logger.warn(`[dsh-session-manager/blue] status registration failed: ${registered.code} ${registered.message}`)
   }
+  registerStatus()
 
   // The unread marker set is owned by the service (host-side durable state);
   // its change event refreshes the status entry and the pane badges.
   ctx.on('dsh-session-manager/unread-changed', (ids) => {
     state.unread = [...ids]
     refreshSurfaces()
+  })
+
+  // The sibling host entry in cordis.patch.yml constructs sessionManagerV1
+  // inside an async apply (after storageDomain.open), so the service may be
+  // provided AFTER this apply already ran. cordis has no public
+  // "service attached" event; its registry emits the documented
+  // `internal/service` interception hook on every provide, which is the
+  // simplest correct signal here: adopt the service and refresh both
+  // surfaces (reload() no-ops the data load until then).
+  ctx.on('internal/service', (name) => {
+    if (name !== 'sessionManagerV1' || service !== undefined) return
+    service = ctx.get('sessionManagerV1')
+    if (service === undefined) return
+    state.unread = service.getUnread().ids
+    registerStatus()
+    void reload()
   })
 
   // Commands default to the pane's current selection when no sessionId
