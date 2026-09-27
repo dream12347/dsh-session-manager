@@ -24,6 +24,9 @@
  *  3. Drop the trash entry.
  *
  * Purge flow: remove the artifact directory and the trash entry.
+ *
+ * Startup-teardown safety: every registration runs synchronously in apply();
+ * the storage-domain continuation only binds data (fixed 2026-09-12).
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -35,14 +38,14 @@ import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-storage-domain'
 // Type-only: brings the ctx.agentPresets service merge into this program.
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 // Type-only: brings the ctx.loader merge into this program.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { defineDomain } from '@deepseek-ai/dsh-storage-domain'
 import { z } from 'zod'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
@@ -118,6 +121,29 @@ function trashRoot(): string {
 }
 function trashSessionDir(sessionId: string): string {
   return join(trashRoot(), sessionId)
+}
+
+/**
+ * Resolve one Session's on-disk directory. 0.1.7 removed the persistence
+ * locate() query, so the directory is discovered from the shipped JSONL
+ * layout under the sessions root instead: <sessions>/<project>/<sessionId>.
+ * @param sessionId - the Session whose directory to find.
+ * @returns the existing directory, or undefined when nothing matches.
+ */
+function sessionDirOf(sessionId: string): string | undefined {
+  const root = dshHomePath('sessions')
+  let projects: string[]
+  try {
+    projects = readdirSync(root)
+  } catch {
+    // A missing or unreadable root means no session artifact is discoverable.
+    return undefined
+  }
+  for (const project of projects) {
+    const candidate = join(root, project, sessionId)
+    if (existsSync(candidate)) return candidate
+  }
+  return undefined
 }
 
 function readJsonBody(req: IncomingMessage): Promise<unknown> {
@@ -318,8 +344,8 @@ async function applyThresholdToLiveAgents(ctx: Context, ratio: number): Promise<
       | undefined
     if (presets?.serviceFor === undefined) return
     const headers = await ctx.sessionPersistence.list()
-    for (const header of headers) {
-      const agent = ctx.agents.get(header.id)
+    for (const snapshot of headers) {
+      const agent = ctx.agents.get(snapshot.header.id)
       if (agent === undefined) continue
       const engine = presets.serviceFor(agent, 'compaction') as
         | { config?: { thresholdRatio?: unknown } }
@@ -333,432 +359,461 @@ async function applyThresholdToLiveAgents(ctx: Context, ratio: number): Promise<
 }
 
 export function apply(ctx: Context): Promise<() => Promise<void>> {
-  return ctx.storageDomain.open(trashDomainSpec).then((trash) => {
-    const getEntries = (): TrashEntry[] => (trash.global.get() as { entries: TrashEntry[] }).entries
+    // Startup-teardown safety: every registration below runs synchronously while
+    // this fiber is alive; the storage-domain continuation only binds data. A
+    // sibling entry failing mid-apply disposes this fiber before open() resolves,
+    // and the previous open().then() structure ran its registrations into the
+    // disposed fiber, surfacing "cannot create effect on inactive context" as a
+    // misleading primary startup failure.
+    const openTrashDomain = () => ctx.storageDomain.open(trashDomainSpec)
+    type OpenedTrash = Awaited<ReturnType<typeof openTrashDomain>>
+    let trash: OpenedTrash | undefined
+    
+    const getEntries = (): TrashEntry[] => {
+    	if (trash === undefined) throw new Error('trash domain not ready')
+    	return (trash.global.get() as { entries: TrashEntry[] }).entries
+    }
     const setEntries = (entries: TrashEntry[]): Promise<void> => {
-      const current = trash.global.get() as { entries: TrashEntry[]; thresholdRatio?: number }
-      return trash.global.set({ ...current, entries }).catch((error) => {
-        ctx.logger.warn('[dsh-session-manager] trash persist failed:', error)
-        throw error
-      })
+    	if (trash === undefined) return Promise.reject(new Error('trash domain not ready'))
+    	const current = trash.global.get() as { entries: TrashEntry[]; thresholdRatio?: number }
+    	return trash.global.set({ ...current, entries }).catch((error) => {
+    		ctx.logger.warn('[dsh-session-manager] trash persist failed:', error)
+    		throw error
+    	})
     }
+    
+let mutationTail: Promise<void> = Promise.resolve()
+const withMutationLock = <T>(operation: () => Promise<T>): Promise<T> => {
+  const result = mutationTail.then(operation, operation)
+  mutationTail = result.then(() => undefined, () => undefined)
+  return result
+}
 
-    let mutationTail: Promise<void> = Promise.resolve()
-    const withMutationLock = <T>(operation: () => Promise<T>): Promise<T> => {
-      const result = mutationTail.then(operation, operation)
-      mutationTail = result.then(() => undefined, () => undefined)
-      return result
+// The user-set compaction threshold, persisted in this plugin's storage
+// domain. Loaded at startup; updated on save. It applies to EVERY session
+// regardless of agent preset: each step-boundary enforcement below forces
+// the running engine's config to this value.
+let configuredThreshold: number | null = null
+const setConfiguredThreshold = async (ratio: number): Promise<void> => {
+  const domain = trash
+  if (domain === undefined) throw new Error('trash domain not ready')
+  const current = domain.global.get() as { entries: TrashEntry[]; thresholdRatio?: number }
+  await domain.global.set({ ...current, thresholdRatio: ratio }).catch((error) => {
+    ctx.logger.warn('[dsh-session-manager] threshold persist failed:', error)
+    throw error
+  })
+  configuredThreshold = ratio
+}
+
+// Enforce the configured threshold on every session's compaction engine
+// at each step boundary, whatever preset the session uses. The engine
+// reads `this.config` per decision, so the assignment is enough. Silent
+// and cheap (one comparison); never blocks the step.
+{
+  const presets = ctx.get('agentPresets') as
+    | { serviceFor?(agent: { ctx: Context }, name: string): unknown }
+    | undefined
+  ctx.on('agent/pre-step', async ({ agent }, next) => {
+    try {
+      if (configuredThreshold !== null && presets?.serviceFor !== undefined) {
+        const engine = presets.serviceFor(agent, 'compaction') as
+          | { config?: { thresholdRatio?: unknown } }
+          | undefined
+        if (engine?.config !== undefined && engine.config.thresholdRatio !== configuredThreshold) {
+          engine.config.thresholdRatio = configuredThreshold
+        }
+      }
+    } catch {
+      // Never let enforcement break a step.
     }
+    return next()
+  }, { prepend: true })
+}
 
-    // The user-set compaction threshold, persisted in this plugin's storage
-    // domain. Loaded at startup; updated on save. It applies to EVERY session
-    // regardless of agent preset: each step-boundary enforcement below forces
-    // the running engine's config to this value.
-    let configuredThreshold: number | null = (trash.global.get() as { thresholdRatio?: number }).thresholdRatio ?? null
-    const setConfiguredThreshold = async (ratio: number): Promise<void> => {
-      const current = trash.global.get() as { entries: TrashEntry[]; thresholdRatio?: number }
-      await trash.global.set({ ...current, thresholdRatio: ratio }).catch((error) => {
-        ctx.logger.warn('[dsh-session-manager] threshold persist failed:', error)
-        throw error
-      })
-      configuredThreshold = ratio
+// POST /dsh-session-manager/delete — soft delete into the trash.
+ctx.webServer.register({
+  kind: 'exact',
+  path: `${ROUTE_PREFIX}/delete`,
+  handler: async (req, res) => {
+    if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
+    let body: unknown
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return respond(res, 400, { ok: false, error: 'bad-request' })
     }
+    const id = parseSessionId(body)
+    if (id === undefined) return respond(res, 400, { ok: false, error: 'invalid-session-id' })
+    if (trash === undefined) return respond(res, 503, { ok: false, error: 'starting' })
 
-    // Enforce the configured threshold on every session's compaction engine
-    // at each step boundary, whatever preset the session uses. The engine
-    // reads `this.config` per decision, so the assignment is enough. Silent
-    // and cheap (one comparison); never blocks the step.
-    {
-      const presets = ctx.get('agentPresets') as
-        | { serviceFor?(agent: { ctx: Context }, name: string): unknown }
-        | undefined
-      ctx.on('agent/pre-step', async ({ agent }, next) => {
-        try {
-          if (configuredThreshold !== null && presets?.serviceFor !== undefined) {
-            const engine = presets.serviceFor(agent, 'compaction') as
-              | { config?: { thresholdRatio?: unknown } }
-              | undefined
-            if (engine?.config !== undefined && engine.config.thresholdRatio !== configuredThreshold) {
-              engine.config.thresholdRatio = configuredThreshold
-            }
-          }
-        } catch {
-          // Never let enforcement break a step.
-        }
-        return next()
-      }, { prepend: true })
-    }
+    try {
+      await withMutationLock(async () => {
+        const headers = await ctx.sessionPersistence.list()
+        const meta = headers.find((snapshot) => snapshot.header.id === id)
+        const agent = ctx.agents.get(id)
+        const live = agent !== undefined
 
-    // POST /dsh-session-manager/delete — soft delete into the trash.
-    ctx.webServer.register({
-      kind: 'exact',
-      path: `${ROUTE_PREFIX}/delete`,
-      handler: async (req, res) => {
-        if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
-        let body: unknown
-        try {
-          body = await readJsonBody(req)
-        } catch {
-          return respond(res, 400, { ok: false, error: 'bad-request' })
-        }
-        const id = parseSessionId(body)
-        if (id === undefined) return respond(res, 400, { ok: false, error: 'invalid-session-id' })
-
-        try {
-          await withMutationLock(async () => {
-            const headers = await ctx.sessionPersistence.list()
-            const meta = headers.find((header) => header.id === id)
-            const agent = ctx.agents.get(id)
-            const live = agent !== undefined
-
-            if (agent?.status === 'running') {
-              respond(res, 409, { ok: false, error: 'session-live' })
-              return
-            }
-
-            let originalPath: string | undefined
-            if (meta !== undefined) {
-              const location = ctx.sessionPersistence.locate(meta)
-              if (location === undefined) {
-                respond(res, 500, { ok: false, error: 'no-artifact-location' })
-                return
-              }
-              originalPath = dirname(location.path)
-            }
-
-            const workspace = ctx.storageDomain.get('workspace')
-            const wasArchived = workspace !== undefined
-              && (workspace.global.get() as { archivedSessionIds: string[] }).archivedSessionIds.includes(id)
-            const trashPath = trashSessionDir(id)
-            let archiveStarted = false
-            let artifactMoved = false
-            let failureCode = 'delete-failed'
-
-            try {
-              failureCode = 'archive-failed'
-              archiveStarted = true
-              await ctx.workspaceRegistry.archiveSession(id)
-              failureCode = 'delete-failed'
-
-              {
-                const currentWorkspace = ctx.storageDomain.get('workspace')
-                if (currentWorkspace !== undefined) {
-                  const current = currentWorkspace.global.get() as { archivedSessionIds: string[] }
-                  if (!current.archivedSessionIds.includes(id)) {
-                    const next = { ...current, archivedSessionIds: [...current.archivedSessionIds, id] }
-                    await currentWorkspace.global.set(next)
-                    syncRegistryState(ctx, next)
-                    ctx.logger.debug(`[dsh-session-manager] patched archived set for ${id} (stale registry cache)`)
-                  }
-                }
-              }
-
-              if (!live && originalPath !== undefined && existsSync(originalPath)) {
-                await mkdir(trashRoot(), { recursive: true })
-                await rm(trashPath, { recursive: true, force: true })
-                await rename(originalPath, trashPath)
-                artifactMoved = true
-                ctx.logger.debug(`[dsh-session-manager] moved ${id} artifact to trash`)
-              }
-
-              const entries = getEntries()
-              const existingIndex = entries.findIndex((entry) => entry.sessionId === id)
-              let next: TrashEntry[]
-              let overflow: TrashEntry[] = []
-              if (existingIndex >= 0) {
-                next = entries.map((entry, index) => index === existingIndex ? { ...entry, deletedAt: Date.now() } : entry)
-              } else {
-                next = [...entries, { sessionId: id, cwd: meta?.cwd, originalPath, deletedAt: Date.now() }]
-                if (next.length > TRASH_LIMIT) {
-                  overflow = next.slice(0, next.length - TRASH_LIMIT)
-                  next = next.slice(next.length - TRASH_LIMIT)
-                }
-              }
-              await setEntries(next)
-              for (const entry of overflow) {
-                await rm(trashSessionDir(entry.sessionId), { recursive: true, force: true }).catch(() => {})
-              }
-
-              respond(res, 200, { ok: true })
-            } catch (error) {
-              if (artifactMoved && originalPath !== undefined && existsSync(trashPath) && !existsSync(originalPath)) {
-                try {
-                  await mkdir(dirname(originalPath), { recursive: true })
-                  await rename(trashPath, originalPath)
-                } catch (rollbackError) {
-                  ctx.logger.warn(`[dsh-session-manager] artifact rollback failed for ${id}:`, rollbackError)
-                }
-              }
-              if (archiveStarted && !wasArchived) {
-                try {
-                  await unarchive(ctx, id)
-                } catch (rollbackError) {
-                  ctx.logger.warn(`[dsh-session-manager] archive rollback failed for ${id}:`, rollbackError)
-                }
-              }
-              ctx.logger.warn(`[dsh-session-manager] ${failureCode} for ${id}:`, error)
-              respond(res, 500, { ok: false, error: failureCode })
-            }
-          })
-        } catch (error) {
-          ctx.logger.warn('[dsh-session-manager] delete failed:', error)
-          respond(res, 500, { ok: false, error: 'delete-failed' })
-        }
-      },
-    })
-
-    // POST /dsh-session-manager/restore — move the artifact back and unarchive.
-    ctx.webServer.register({
-      kind: 'exact',
-      path: `${ROUTE_PREFIX}/restore`,
-      handler: async (req, res) => {
-        if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
-        let body: unknown
-        try {
-          body = await readJsonBody(req)
-        } catch {
-          return respond(res, 400, { ok: false, error: 'bad-request' })
-        }
-        const id = parseSessionId(body)
-        if (id === undefined) return respond(res, 400, { ok: false, error: 'invalid-session-id' })
-
-        try {
-          await withMutationLock(async () => {
-            const entries = getEntries()
-            const entry = entries.find((candidate) => candidate.sessionId === id)
-
-            // No trash entry: this is an archived-but-present session being
-            // restored from the "已归档" group. Just un-archive it.
-            if (entry === undefined) {
-              const headers = await ctx.sessionPersistence.list()
-              const meta = headers.find((header) => header.id === id)
-              const agent = ctx.agents.get(id)
-              if (meta === undefined && agent === undefined) {
-                return respond(res, 404, { ok: false, error: 'trash-entry-not-found' })
-              }
-              await unarchive(ctx, id)
-              ctx.logger.debug(`[dsh-session-manager] restore ${id}: no trash entry, un-archived only`)
-              return respond(res, 200, { ok: true })
-            }
-
-            // Move the artifact back only when the trash actually holds one; a
-            // live session's artifact was never moved, so nothing to do here.
-            const from = trashSessionDir(id)
-            if (existsSync(from)) {
-              if (entry.originalPath === undefined) {
-                ctx.logger.warn(`[dsh-session-manager] restore ${id}: artifact exists in trash but entry has no original path`)
-                return respond(res, 500, { ok: false, error: 'no-original-path' })
-              }
-              if (existsSync(entry.originalPath)) {
-                // The original location was recreated (a live session kept
-                // writing there): keep the newer file, discard the trash copy.
-                await rm(from, { recursive: true, force: true })
-                ctx.logger.warn(`[dsh-session-manager] restore ${id}: original path already exists, discarding trash copy`)
-              } else {
-                await mkdir(dirname(entry.originalPath), { recursive: true })
-                await rename(from, entry.originalPath)
-                ctx.logger.debug(`[dsh-session-manager] restored ${id} artifact from trash`)
-              }
-            } else {
-              ctx.logger.debug(`[dsh-session-manager] restore ${id}: no artifact in trash (live or blank session)`)
-            }
-
-            // Only now — artifact safely back — un-archive and drop the entry.
-            await unarchive(ctx, id)
-            await setEntries(entries.filter((candidate) => candidate.sessionId !== id))
-            respond(res, 200, { ok: true })
-          })
-        } catch (error) {
-          ctx.logger.warn('[dsh-session-manager] restore failed:', error)
-          respond(res, 500, { ok: false, error: 'restore-failed' })
-        }
-      },
-    })
-
-    // POST /dsh-session-manager/purge — permanently delete the trash entry.
-    ctx.webServer.register({
-      kind: 'exact',
-      path: `${ROUTE_PREFIX}/purge`,
-      handler: async (req, res) => {
-        if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
-        let body: unknown
-        try {
-          body = await readJsonBody(req)
-        } catch {
-          return respond(res, 400, { ok: false, error: 'bad-request' })
-        }
-        const id = parseSessionId(body)
-        if (id === undefined) return respond(res, 400, { ok: false, error: 'invalid-session-id' })
-
-        try {
-          await withMutationLock(async () => {
-            const entries = getEntries()
-            const entry = entries.find((candidate) => candidate.sessionId === id)
-            if (entry === undefined) {
-              respond(res, 404, { ok: false, error: 'trash-entry-not-found' })
-              return
-            }
-
-            // Remove the artifact: from the trash if it was moved there, and from
-            // the original location too (a live session's artifact stayed put).
-            await rm(trashSessionDir(id), { recursive: true, force: true })
-            if (entry.originalPath !== undefined) {
-              await rm(entry.originalPath, { recursive: true, force: true })
-            }
-            await setEntries(entries.filter((candidate) => candidate.sessionId !== id))
-            respond(res, 200, { ok: true })
-          })
-        } catch (error) {
-          ctx.logger.warn('[dsh-session-manager] purge failed:', error)
-          respond(res, 500, { ok: false, error: 'purge-failed' })
-        }
-      },
-    })
-
-    // POST /dsh-session-manager/pause — stop a running session's current turn.
-    ctx.webServer.register({
-      kind: 'exact',
-      path: `${ROUTE_PREFIX}/pause`,
-      handler: async (req, res) => {
-        if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
-        let body: unknown
-        try {
-          body = await readJsonBody(req)
-        } catch {
-          return respond(res, 400, { ok: false, error: 'bad-request' })
-        }
-        const id = parseSessionId(body)
-        if (id === undefined) return respond(res, 400, { ok: false, error: 'invalid-session-id' })
-
-        try {
-          const agent = ctx.agents.get(id)
-          if (agent === undefined) {
-            return respond(res, 404, { ok: false, error: 'agent-not-found' })
-          }
-          agent.cancel({ kind: 'user' })
-          respond(res, 200, { ok: true })
-        } catch (error) {
-          ctx.logger.warn('[dsh-session-manager] pause failed:', error)
-          respond(res, 500, { ok: false, error: 'pause-failed' })
-        }
-      },
-    })
-
-    // GET /dsh-session-manager/trash — list trash entries.
-    ctx.webServer.register({
-      kind: 'exact',
-      path: `${ROUTE_PREFIX}/trash`,
-      handler: async (_req, res) => {
-        try {
-          respond(res, 200, { ok: true, entries: getEntries(), limit: TRASH_LIMIT })
-        } catch (error) {
-          ctx.logger.warn('[dsh-session-manager] trash list failed:', error)
-          respond(res, 500, { ok: false, error: 'trash-list-failed' })
-        }
-      },
-    })
-
-    // GET/POST /dsh-session-manager/compaction-threshold — read or update the
-    // user-set threshold. The value is persisted in this plugin's storage
-    // domain and written to a user preset's composition file when available.
-    // System preset files are read-only, so they are never modified; the
-    // threshold is still enforced on EVERY session's engine at each step
-    // boundary and survives restarts through the storage domain.
-    ctx.webServer.register({
-      kind: 'exact',
-      path: `${ROUTE_PREFIX}/compaction-threshold`,
-      handler: async (req, res) => {
-        if (req.method === 'GET') {
-          // Storage is authoritative once set; before the first save, fall
-          // back to the default preset file so an existing value shows up.
-          let ratio = configuredThreshold
-          if (ratio === null) {
-            try {
-              const name = defaultPresetName(ctx)
-              const preset = await resolvePresetComposition(ctx, name)
-              const content = await readFile(preset.path, 'utf8')
-              ratio = parsePresetRatio(content) ?? 0.8
-            } catch {
-              ratio = 0.8
-            }
-          }
-          respond(res, 200, { ok: true, ratio })
+        if (agent?.status === 'running') {
+          respond(res, 409, { ok: false, error: 'session-live' })
           return
         }
-        if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
-        let body: unknown
-        try {
-          body = await readJsonBody(req)
-        } catch {
-          return respond(res, 400, { ok: false, error: 'bad-request' })
-        }
-        const ratio = (body as { ratio?: unknown } | null)?.ratio
-        // The engine requires thresholdRatio > retainRatio (default 0.16).
-        if (typeof ratio !== 'number' || !Number.isFinite(ratio) || ratio < 0.17 || ratio > 0.9) {
-          return respond(res, 400, { ok: false, error: 'invalid-ratio' })
-        }
-        try {
-          await withMutationLock(async () => {
-            await setConfiguredThreshold(ratio)
-            const name = defaultPresetName(ctx)
-            const preset = await resolvePresetComposition(ctx, name)
-            if (preset.trust !== 'system') {
-              await writePresetComposition(preset.path, ratio)
-            }
-            await applyThresholdToLiveAgents(ctx, ratio)
-            respond(res, 200, { ok: true })
-          })
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          ctx.logger.warn('[dsh-session-manager] compaction-threshold update failed:', error)
-          respond(res, 500, { ok: false, error: message })
-        }
-      },
-    })
 
-    // POST /dsh-session-manager/open-folder — reveal a session's log directory
-    // in the system file manager.
-    ctx.webServer.register({
-      kind: 'exact',
-      path: `${ROUTE_PREFIX}/open-folder`,
-      handler: async (req, res) => {
-        if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
-        let body: unknown
-        try {
-          body = await readJsonBody(req)
-        } catch {
-          return respond(res, 400, { ok: false, error: 'bad-request' })
+        let originalPath: string | undefined
+        if (meta !== undefined) {
+          originalPath = sessionDirOf(id)
+          if (originalPath === undefined) {
+            respond(res, 500, { ok: false, error: 'no-artifact-location' })
+            return
+          }
         }
-        const id = parseSessionId(body)
-        if (id === undefined) return respond(res, 400, { ok: false, error: 'invalid-session-id' })
+
+        const workspace = ctx.storageDomain.get('workspace')
+        const wasArchived = workspace !== undefined
+          && (workspace.global.get() as { archivedSessionIds: string[] }).archivedSessionIds.includes(id)
+        const trashPath = trashSessionDir(id)
+        let archiveStarted = false
+        let artifactMoved = false
+        let failureCode = 'delete-failed'
 
         try {
-          // Prefer the live artifact location; fall back to the trash entry.
-          let dir: string | undefined
-          const headers = await ctx.sessionPersistence.list()
-          const meta = headers.find((header) => header.id === id)
-          if (meta !== undefined) {
-            const location = ctx.sessionPersistence.locate(meta)
-            if (location !== undefined) dir = dirname(location.path)
-          }
-          if (dir === undefined || !existsSync(dir)) {
-            const entry = getEntries().find((candidate) => candidate.sessionId === id)
-            if (entry?.originalPath !== undefined && existsSync(entry.originalPath)) {
-              dir = entry.originalPath
+          failureCode = 'archive-failed'
+          archiveStarted = true
+          await ctx.workspaceRegistry.archiveSession(id)
+          failureCode = 'delete-failed'
+
+          {
+            const currentWorkspace = ctx.storageDomain.get('workspace')
+            if (currentWorkspace !== undefined) {
+              const current = currentWorkspace.global.get() as { archivedSessionIds: string[] }
+              if (!current.archivedSessionIds.includes(id)) {
+                const next = { ...current, archivedSessionIds: [...current.archivedSessionIds, id] }
+                await currentWorkspace.global.set(next)
+                syncRegistryState(ctx, next)
+                ctx.logger.debug(`[dsh-session-manager] patched archived set for ${id} (stale registry cache)`)
+              }
             }
           }
-          if (dir === undefined || !existsSync(dir)) {
-            return respond(res, 404, { ok: false, error: 'folder-not-found' })
+
+          if (!live && originalPath !== undefined && existsSync(originalPath)) {
+            await mkdir(trashRoot(), { recursive: true })
+            await rm(trashPath, { recursive: true, force: true })
+            await rename(originalPath, trashPath)
+            artifactMoved = true
+            ctx.logger.debug(`[dsh-session-manager] moved ${id} artifact to trash`)
           }
-          await openFolder(dir)
+
+          const entries = getEntries()
+          const existingIndex = entries.findIndex((entry) => entry.sessionId === id)
+          let next: TrashEntry[]
+          let overflow: TrashEntry[] = []
+          if (existingIndex >= 0) {
+            next = entries.map((entry, index) => index === existingIndex ? { ...entry, deletedAt: Date.now() } : entry)
+          } else {
+            next = [...entries, { sessionId: id, cwd: meta?.header.cwd, originalPath, deletedAt: Date.now() }]
+            if (next.length > TRASH_LIMIT) {
+              overflow = next.slice(0, next.length - TRASH_LIMIT)
+              next = next.slice(next.length - TRASH_LIMIT)
+            }
+          }
+          await setEntries(next)
+          for (const entry of overflow) {
+            await rm(trashSessionDir(entry.sessionId), { recursive: true, force: true }).catch(() => {})
+          }
+
           respond(res, 200, { ok: true })
         } catch (error) {
-          ctx.logger.warn('[dsh-session-manager] open-folder failed:', error)
-          respond(res, 500, { ok: false, error: 'open-folder-failed' })
+          if (artifactMoved && originalPath !== undefined && existsSync(trashPath) && !existsSync(originalPath)) {
+            try {
+              await mkdir(dirname(originalPath), { recursive: true })
+              await rename(trashPath, originalPath)
+            } catch (rollbackError) {
+              ctx.logger.warn(`[dsh-session-manager] artifact rollback failed for ${id}:`, rollbackError)
+            }
+          }
+          if (archiveStarted && !wasArchived) {
+            try {
+              await unarchive(ctx, id)
+            } catch (rollbackError) {
+              ctx.logger.warn(`[dsh-session-manager] archive rollback failed for ${id}:`, rollbackError)
+            }
+          }
+          ctx.logger.warn(`[dsh-session-manager] ${failureCode} for ${id}:`, error)
+          respond(res, 500, { ok: false, error: failureCode })
         }
-      },
-    })
+      })
+    } catch (error) {
+      ctx.logger.warn('[dsh-session-manager] delete failed:', error)
+      respond(res, 500, { ok: false, error: 'delete-failed' })
+    }
+  },
+})
 
-    return () => trash.close()
-  })
+// POST /dsh-session-manager/restore — move the artifact back and unarchive.
+ctx.webServer.register({
+  kind: 'exact',
+  path: `${ROUTE_PREFIX}/restore`,
+  handler: async (req, res) => {
+    if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
+    let body: unknown
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return respond(res, 400, { ok: false, error: 'bad-request' })
+    }
+    const id = parseSessionId(body)
+    if (id === undefined) return respond(res, 400, { ok: false, error: 'invalid-session-id' })
+    if (trash === undefined) return respond(res, 503, { ok: false, error: 'starting' })
+
+    try {
+      await withMutationLock(async () => {
+        const entries = getEntries()
+        const entry = entries.find((candidate) => candidate.sessionId === id)
+
+        // No trash entry: this is an archived-but-present session being
+        // restored from the "已归档" group. Just un-archive it.
+        if (entry === undefined) {
+          const headers = await ctx.sessionPersistence.list()
+          const meta = headers.find((snapshot) => snapshot.header.id === id)
+          const agent = ctx.agents.get(id)
+          if (meta === undefined && agent === undefined) {
+            return respond(res, 404, { ok: false, error: 'trash-entry-not-found' })
+          }
+          await unarchive(ctx, id)
+          ctx.logger.debug(`[dsh-session-manager] restore ${id}: no trash entry, un-archived only`)
+          return respond(res, 200, { ok: true })
+        }
+
+        // Move the artifact back only when the trash actually holds one; a
+        // live session's artifact was never moved, so nothing to do here.
+        const from = trashSessionDir(id)
+        if (existsSync(from)) {
+          if (entry.originalPath === undefined) {
+            ctx.logger.warn(`[dsh-session-manager] restore ${id}: artifact exists in trash but entry has no original path`)
+            return respond(res, 500, { ok: false, error: 'no-original-path' })
+          }
+          if (existsSync(entry.originalPath)) {
+            // The original location was recreated (a live session kept
+            // writing there): keep the newer file, discard the trash copy.
+            await rm(from, { recursive: true, force: true })
+            ctx.logger.warn(`[dsh-session-manager] restore ${id}: original path already exists, discarding trash copy`)
+          } else {
+            await mkdir(dirname(entry.originalPath), { recursive: true })
+            await rename(from, entry.originalPath)
+            ctx.logger.debug(`[dsh-session-manager] restored ${id} artifact from trash`)
+          }
+        } else {
+          ctx.logger.debug(`[dsh-session-manager] restore ${id}: no artifact in trash (live or blank session)`)
+        }
+
+        // Only now — artifact safely back — un-archive and drop the entry.
+        await unarchive(ctx, id)
+        await setEntries(entries.filter((candidate) => candidate.sessionId !== id))
+        respond(res, 200, { ok: true })
+      })
+    } catch (error) {
+      ctx.logger.warn('[dsh-session-manager] restore failed:', error)
+      respond(res, 500, { ok: false, error: 'restore-failed' })
+    }
+  },
+})
+
+// POST /dsh-session-manager/purge — permanently delete the trash entry.
+ctx.webServer.register({
+  kind: 'exact',
+  path: `${ROUTE_PREFIX}/purge`,
+  handler: async (req, res) => {
+    if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
+    let body: unknown
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return respond(res, 400, { ok: false, error: 'bad-request' })
+    }
+    const id = parseSessionId(body)
+    if (id === undefined) return respond(res, 400, { ok: false, error: 'invalid-session-id' })
+    if (trash === undefined) return respond(res, 503, { ok: false, error: 'starting' })
+
+    try {
+      await withMutationLock(async () => {
+        const entries = getEntries()
+        const entry = entries.find((candidate) => candidate.sessionId === id)
+        if (entry === undefined) {
+          respond(res, 404, { ok: false, error: 'trash-entry-not-found' })
+          return
+        }
+
+        // Remove the artifact: from the trash if it was moved there, and from
+        // the original location too (a live session's artifact stayed put).
+        await rm(trashSessionDir(id), { recursive: true, force: true })
+        if (entry.originalPath !== undefined) {
+          await rm(entry.originalPath, { recursive: true, force: true })
+        }
+        await setEntries(entries.filter((candidate) => candidate.sessionId !== id))
+        respond(res, 200, { ok: true })
+      })
+    } catch (error) {
+      ctx.logger.warn('[dsh-session-manager] purge failed:', error)
+      respond(res, 500, { ok: false, error: 'purge-failed' })
+    }
+  },
+})
+
+// POST /dsh-session-manager/pause — stop a running session's current turn.
+ctx.webServer.register({
+  kind: 'exact',
+  path: `${ROUTE_PREFIX}/pause`,
+  handler: async (req, res) => {
+    if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
+    let body: unknown
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return respond(res, 400, { ok: false, error: 'bad-request' })
+    }
+    const id = parseSessionId(body)
+    if (id === undefined) return respond(res, 400, { ok: false, error: 'invalid-session-id' })
+
+    try {
+      const agent = ctx.agents.get(id)
+      if (agent === undefined) {
+        return respond(res, 404, { ok: false, error: 'agent-not-found' })
+      }
+      agent.cancel({ kind: 'user' })
+      respond(res, 200, { ok: true })
+    } catch (error) {
+      ctx.logger.warn('[dsh-session-manager] pause failed:', error)
+      respond(res, 500, { ok: false, error: 'pause-failed' })
+    }
+  },
+})
+
+// GET /dsh-session-manager/trash — list trash entries.
+ctx.webServer.register({
+  kind: 'exact',
+  path: `${ROUTE_PREFIX}/trash`,
+  handler: async (_req, res) => {
+  if (trash === undefined) return respond(res, 503, { ok: false, error: 'starting' })
+    try {
+      respond(res, 200, { ok: true, entries: getEntries(), limit: TRASH_LIMIT })
+    } catch (error) {
+      ctx.logger.warn('[dsh-session-manager] trash list failed:', error)
+      respond(res, 500, { ok: false, error: 'trash-list-failed' })
+    }
+  },
+})
+
+// GET/POST /dsh-session-manager/compaction-threshold — read or update the
+// user-set threshold. The value is persisted in this plugin's storage
+// domain and written to a user preset's composition file when available.
+// System preset files are read-only, so they are never modified; the
+// threshold is still enforced on EVERY session's engine at each step
+// boundary and survives restarts through the storage domain.
+ctx.webServer.register({
+  kind: 'exact',
+  path: `${ROUTE_PREFIX}/compaction-threshold`,
+  handler: async (req, res) => {
+    if (req.method === 'GET') {
+      // Storage is authoritative once set; before the first save, fall
+      // back to the default preset file so an existing value shows up.
+      let ratio = configuredThreshold
+      if (ratio === null) {
+        try {
+          const name = defaultPresetName(ctx)
+          const preset = await resolvePresetComposition(ctx, name)
+          const content = await readFile(preset.path, 'utf8')
+          ratio = parsePresetRatio(content) ?? 0.8
+        } catch {
+          ratio = 0.8
+        }
+      }
+      respond(res, 200, { ok: true, ratio })
+      return
+    }
+    if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
+    let body: unknown
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return respond(res, 400, { ok: false, error: 'bad-request' })
+    }
+    const ratio = (body as { ratio?: unknown } | null)?.ratio
+    // The engine requires thresholdRatio > retainRatio (default 0.16).
+    if (typeof ratio !== 'number' || !Number.isFinite(ratio) || ratio < 0.17 || ratio > 0.9) {
+    if (trash === undefined) return respond(res, 503, { ok: false, error: 'starting' })
+      return respond(res, 400, { ok: false, error: 'invalid-ratio' })
+    }
+    try {
+      await withMutationLock(async () => {
+        await setConfiguredThreshold(ratio)
+        const name = defaultPresetName(ctx)
+        const preset = await resolvePresetComposition(ctx, name)
+        if (preset.trust !== 'system') {
+          await writePresetComposition(preset.path, ratio)
+        }
+        await applyThresholdToLiveAgents(ctx, ratio)
+        respond(res, 200, { ok: true })
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      ctx.logger.warn('[dsh-session-manager] compaction-threshold update failed:', error)
+      respond(res, 500, { ok: false, error: message })
+    }
+  },
+})
+
+// POST /dsh-session-manager/open-folder — reveal a session's log directory
+// in the system file manager.
+ctx.webServer.register({
+  kind: 'exact',
+  path: `${ROUTE_PREFIX}/open-folder`,
+  handler: async (req, res) => {
+    if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
+    let body: unknown
+    try {
+      body = await readJsonBody(req)
+    } catch {
+      return respond(res, 400, { ok: false, error: 'bad-request' })
+    }
+    const id = parseSessionId(body)
+    if (id === undefined) return respond(res, 400, { ok: false, error: 'invalid-session-id' })
+
+    try {
+      // Prefer the live artifact location; fall back to the trash entry.
+      let dir: string | undefined
+      const headers = await ctx.sessionPersistence.list()
+      const meta = headers.find((snapshot) => snapshot.header.id === id)
+      if (meta !== undefined) dir = sessionDirOf(id)
+      if (dir === undefined || !existsSync(dir)) {
+        const entry = trash === undefined ? undefined : getEntries().find((candidate) => candidate.sessionId === id)
+        if (entry?.originalPath !== undefined && existsSync(entry.originalPath)) {
+          dir = entry.originalPath
+        }
+      }
+      if (dir === undefined || !existsSync(dir)) {
+        return respond(res, 404, { ok: false, error: 'folder-not-found' })
+      }
+      await openFolder(dir)
+      respond(res, 200, { ok: true })
+    } catch (error) {
+      ctx.logger.warn('[dsh-session-manager] open-folder failed:', error)
+      respond(res, 500, { ok: false, error: 'open-folder-failed' })
+    }
+  },
+})
+
+    return openTrashDomain().then((opened) => {
+    	// A mid-open disposal lands here: bind the handle so the collected
+    	// disposer still closes the domain; the fiber's unload already removed
+    	// every registration made above.
+    	if (ctx.fiber.uid == null) {
+    		ctx.logger.warn('[dsh-session-manager] disposed while the trash domain opened; skipping data bind')
+    	}
+    	trash = opened
+    	configuredThreshold = (opened.global.get() as { thresholdRatio?: number }).thresholdRatio ?? null
+    	return async () => {
+    		if (trash === undefined) return
+    		trash = undefined
+    		await opened.close()
+    	}
+    })
 }

@@ -1,3 +1,15 @@
+## 0.2.3 (local fork)
+
+- Fix: register all listeners and web routes synchronously in `apply()`; the
+  `storageDomain.open()` continuation now only binds data and returns the
+  disposer. A sibling entry failing while this plugin was mid-apply used to
+  dispose the fiber and then run those registrations into it, surfacing
+  `cannot create effect on inactive context` as a misleading primary startup
+  failure. Trash-touching routes now answer 503 `starting` if a request lands
+  before the domain finishes opening. lib/index.js rebuilt with tsdown 0.22.2
+  (formatting drift from the author's build only; src/index.ts is the review
+  surface).
+
 ## v0.2.2 (2026-08-20)
 
 ### 修复
