@@ -38,14 +38,14 @@ import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-storage-domain'
 // Type-only: brings the ctx.agentPresets service merge into this program.
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 // Type-only: brings the ctx.loader merge into this program.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { defineDomain } from '@deepseek-ai/dsh-storage-domain'
 import { z } from 'zod'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
@@ -121,6 +121,29 @@ function trashRoot(): string {
 }
 function trashSessionDir(sessionId: string): string {
   return join(trashRoot(), sessionId)
+}
+
+/**
+ * Resolve one Session's on-disk directory. 0.1.7 removed the persistence
+ * locate() query, so the directory is discovered from the shipped JSONL
+ * layout under the sessions root instead: <sessions>/<project>/<sessionId>.
+ * @param sessionId - the Session whose directory to find.
+ * @returns the existing directory, or undefined when nothing matches.
+ */
+function sessionDirOf(sessionId: string): string | undefined {
+  const root = dshHomePath('sessions')
+  let projects: string[]
+  try {
+    projects = readdirSync(root)
+  } catch {
+    // A missing or unreadable root means no session artifact is discoverable.
+    return undefined
+  }
+  for (const project of projects) {
+    const candidate = join(root, project, sessionId)
+    if (existsSync(candidate)) return candidate
+  }
+  return undefined
 }
 
 function readJsonBody(req: IncomingMessage): Promise<unknown> {
@@ -321,8 +344,8 @@ async function applyThresholdToLiveAgents(ctx: Context, ratio: number): Promise<
       | undefined
     if (presets?.serviceFor === undefined) return
     const headers = await ctx.sessionPersistence.list()
-    for (const header of headers) {
-      const agent = ctx.agents.get(header.id)
+    for (const snapshot of headers) {
+      const agent = ctx.agents.get(snapshot.header.id)
       if (agent === undefined) continue
       const engine = presets.serviceFor(agent, 'compaction') as
         | { config?: { thresholdRatio?: unknown } }
@@ -372,8 +395,10 @@ const withMutationLock = <T>(operation: () => Promise<T>): Promise<T> => {
 // the running engine's config to this value.
 let configuredThreshold: number | null = null
 const setConfiguredThreshold = async (ratio: number): Promise<void> => {
-  const current = trash.global.get() as { entries: TrashEntry[]; thresholdRatio?: number }
-  await trash.global.set({ ...current, thresholdRatio: ratio }).catch((error) => {
+  const domain = trash
+  if (domain === undefined) throw new Error('trash domain not ready')
+  const current = domain.global.get() as { entries: TrashEntry[]; thresholdRatio?: number }
+  await domain.global.set({ ...current, thresholdRatio: ratio }).catch((error) => {
     ctx.logger.warn('[dsh-session-manager] threshold persist failed:', error)
     throw error
   })
@@ -424,7 +449,7 @@ ctx.webServer.register({
     try {
       await withMutationLock(async () => {
         const headers = await ctx.sessionPersistence.list()
-        const meta = headers.find((header) => header.id === id)
+        const meta = headers.find((snapshot) => snapshot.header.id === id)
         const agent = ctx.agents.get(id)
         const live = agent !== undefined
 
@@ -435,12 +460,11 @@ ctx.webServer.register({
 
         let originalPath: string | undefined
         if (meta !== undefined) {
-          const location = ctx.sessionPersistence.locate(meta)
-          if (location === undefined) {
+          originalPath = sessionDirOf(id)
+          if (originalPath === undefined) {
             respond(res, 500, { ok: false, error: 'no-artifact-location' })
             return
           }
-          originalPath = dirname(location.path)
         }
 
         const workspace = ctx.storageDomain.get('workspace')
@@ -485,7 +509,7 @@ ctx.webServer.register({
           if (existingIndex >= 0) {
             next = entries.map((entry, index) => index === existingIndex ? { ...entry, deletedAt: Date.now() } : entry)
           } else {
-            next = [...entries, { sessionId: id, cwd: meta?.cwd, originalPath, deletedAt: Date.now() }]
+            next = [...entries, { sessionId: id, cwd: meta?.header.cwd, originalPath, deletedAt: Date.now() }]
             if (next.length > TRASH_LIMIT) {
               overflow = next.slice(0, next.length - TRASH_LIMIT)
               next = next.slice(next.length - TRASH_LIMIT)
@@ -549,7 +573,7 @@ ctx.webServer.register({
         // restored from the "已归档" group. Just un-archive it.
         if (entry === undefined) {
           const headers = await ctx.sessionPersistence.list()
-          const meta = headers.find((header) => header.id === id)
+          const meta = headers.find((snapshot) => snapshot.header.id === id)
           const agent = ctx.agents.get(id)
           if (meta === undefined && agent === undefined) {
             return respond(res, 404, { ok: false, error: 'trash-entry-not-found' })
@@ -757,11 +781,8 @@ ctx.webServer.register({
       // Prefer the live artifact location; fall back to the trash entry.
       let dir: string | undefined
       const headers = await ctx.sessionPersistence.list()
-      const meta = headers.find((header) => header.id === id)
-      if (meta !== undefined) {
-        const location = ctx.sessionPersistence.locate(meta)
-        if (location !== undefined) dir = dirname(location.path)
-      }
+      const meta = headers.find((snapshot) => snapshot.header.id === id)
+      if (meta !== undefined) dir = sessionDirOf(id)
       if (dir === undefined || !existsSync(dir)) {
         const entry = trash === undefined ? undefined : getEntries().find((candidate) => candidate.sessionId === id)
         if (entry?.originalPath !== undefined && existsSync(entry.originalPath)) {

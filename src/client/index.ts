@@ -10,8 +10,15 @@
  * the session's log directory in the system file manager.
  */
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionListState, SessionSummary, SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ISessions, SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionHistoryRecord, SessionPage } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { IWorkspaces, WorkspaceId, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+// Type-only: brings the ctx.uiWorkspace navigation service merge into this program.
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 // Type-only: brings the `settings.section` SlotMap declaration into this program.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: brings the `sidebar.footer.action` SlotMap declaration into this program.
@@ -22,11 +29,10 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: merges the 'title' projection key the wire session summaries read.
 import type {} from '@deepseek-ai/dsh-session-title/client'
-// Type-only: brings the connection/remote merges and IApiClient types.
+// Type-only: brings the connection/remote service merges and generated Remote namespaces.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import type { ConnectionHandle, HistoryEntry, SessionId as WireSessionId } from '@deepseek-ai/dsh-api-remotes/client'
-import type { WorkspaceView } from '@deepseek-ai/dsh-api-remotes/client'
-import { Button, IconTrashOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ClientRemote, WorkspaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import { Button, IconTrashOutlineRegular, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createElement, Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -814,13 +820,19 @@ const STYLE = `
 
 interface SessionManagerProps {
   useSessions: SnapshotSelectorHook<SessionListState>
-  useWorkspaces: SnapshotSelectorHook<import('@deepseek-ai/dsh-client-runtime/client').WorkspaceListState>
-  /** Wire client for the official session.history RPC (stats folding). */
-  api: Pick<import('@deepseek-ai/dsh-api-remotes/client').IApiClient, 'sessions'>
-  /** Browser sessions service: open a session and close the settings panel. */
-  sessions: import('@deepseek-ai/dsh-client-runtime/client').ISessions
+  useWorkspaces: SnapshotSelectorHook<WorkspaceSnapshot>
+  /** Live Session status: pending interaction and unread completion. */
+  useSessionStatus: SnapshotSelectorHook<SessionStatusSnapshot>
+  /** Tail history page for one Session (activity stats folding). */
+  loadHistoryPage: (sessionId: SessionId) => Promise<RemoteResult<SessionPage>>
+  /** Fork one Session on the Host; the result carries the child id. */
+  forkSession: (sessionId: SessionId) => Promise<RemoteResult<{ sessionId: SessionId }>>
+  /** Show one Session's Conversation in the main view. */
+  openSession: (sessionId: SessionId) => void
+  /** Browser sessions service. */
+  sessions: ISessions
   /** Workspaces service: durable workspace reordering (drag & drop). */
-  workspaceActions: import('@deepseek-ai/dsh-client-runtime/client').IWorkspaces
+  workspaceActions: IWorkspaces
   /** Close the settings panel (settings.section owner seat). */
   close: () => void
 }
@@ -846,7 +858,7 @@ interface SessionStats {
  * window; `startedAt`/`updatedAt` are the window's own bounds. Events the
  * fold does not recognize are skipped.
  */
-function foldStats(entries: readonly HistoryEntry[]): SessionStats {
+function foldStats(entries: readonly SessionHistoryRecord[]): SessionStats {
   let turns = 0
   let userMessages = 0
   let assistantMessages = 0
@@ -861,7 +873,8 @@ function foldStats(entries: readonly HistoryEntry[]): SessionStats {
     else if (type === 'user/message') userMessages += 1
     else if (type === 'assistant/message') assistantMessages += 1
     else if (type === 'tool/call') {
-      toolCounts.set(data.name, (toolCounts.get(data.name) ?? 0) + 1)
+      const toolName = toolCallName(data)
+      if (toolName !== undefined) toolCounts.set(toolName, (toolCounts.get(toolName) ?? 0) + 1)
     }
   }
   const toolCalls = [...toolCounts.entries()]
@@ -875,6 +888,13 @@ function foldStats(entries: readonly HistoryEntry[]): SessionStats {
     startedAt: startedAt === Number.POSITIVE_INFINITY ? 0 : startedAt,
     updatedAt: updatedAt === Number.NEGATIVE_INFINITY ? 0 : updatedAt,
   }
+}
+
+/** Read one durable tool-call event's tool name; the payload is untyped JSON. */
+function toolCallName(data: unknown): string | undefined {
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return undefined
+  const name = (data as { name?: unknown }).name
+  return typeof name === 'string' ? name : undefined
 }
 
 /** One session's stats state: loading, ready, or failed. */
@@ -1097,9 +1117,12 @@ function stringsOf() {
       }
 }
 
-function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceActions, close }: SessionManagerProps): ReactElement {
+function SessionManager({ useSessions, useWorkspaces, useSessionStatus, loadHistoryPage, forkSession, openSession, sessions, workspaceActions, close }: SessionManagerProps): ReactElement {
   const list = useSessions((state) => state)
   const workspaces = useWorkspaces((state) => state)
+  const statuses = useSessionStatus((state) => state)
+  // The open Session is the one the main view retains; list state carries no selection.
+  const currentSessionId = Object.values(list.byId).find((session) => (session.retainedBy.mainView ?? 0) > 0)?.id
   const [removed, setRemoved] = useState<ReadonlySet<string>>(() => loadRemoved())
   const [archivedOpen, setArchivedOpen] = useState(false)
   const [trashOpen, setTrashOpen] = useState(false)
@@ -1244,7 +1267,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
     index: number,
   ): ReactElement => {
     const draggable = group.workspaceId !== '__ungrouped__'
-    const workspaceSelectable = group.rows.filter((session) => !session.running && session.id !== list.current)
+    const workspaceSelectable = group.rows.filter((session) => !session.running && session.id !== currentSessionId)
     const workspaceAllSelected = workspaceSelectable.length > 0 && workspaceSelectable.every((session) => selectedIds.has(session.id))
     const workspaceSomeSelected = workspaceSelectable.some((session) => selectedIds.has(session.id))
     return createElement('div', {
@@ -1442,7 +1465,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
   const toggleSelectAll = useCallback((): void => {
     setSelectedIds((previous) => {
       const next = new Set(previous)
-      const selectable = activeRows.filter((session) => !session.running && session.id !== list.current)
+      const selectable = activeRows.filter((session) => !session.running && session.id !== currentSessionId)
       const allSelected = selectable.length > 0 && selectable.every((session) => next.has(session.id))
       for (const session of selectable) {
         if (allSelected) next.delete(session.id)
@@ -1450,12 +1473,12 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       }
       return next
     })
-  }, [activeRows, list.current])
+  }, [activeRows, currentSessionId])
 
   const toggleSelectWorkspace = useCallback((group: { workspaceId: string; rows: SessionSummary[] }): void => {
     setSelectedIds((previous) => {
       const next = new Set(previous)
-      const selectable = group.rows.filter((session) => !session.running && session.id !== list.current)
+      const selectable = group.rows.filter((session) => !session.running && session.id !== currentSessionId)
       const allSelected = selectable.length > 0 && selectable.every((session) => next.has(session.id))
       for (const session of selectable) {
         if (allSelected) next.delete(session.id)
@@ -1463,7 +1486,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       }
       return next
     })
-  }, [list.current])
+  }, [currentSessionId])
 
   const handleBatchDelete = useCallback(async (): Promise<void> => {
     const ids = [...selectedIds]
@@ -1566,16 +1589,16 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
     setStatsId(sessionId)
     setStats({ status: 'loading', data: null })
     try {
-      const response = await api.sessions.history({ sessionId: sessionId as WireSessionId })
-      if (!response.result.ok) {
+      const response = await loadHistoryPage(sessionId as SessionId)
+      if (!response.ok) {
         setStats({ status: 'error', data: null })
         return
       }
-      setStats({ status: 'ready', data: foldStats(response.result.value.events) })
+      setStats({ status: 'ready', data: foldStats(response.value.records) })
     } catch {
       setStats({ status: 'error', data: null })
     }
-  }, [api, statsId])
+  }, [loadHistoryPage, statsId])
 
   const closeStats = useCallback((): void => {
     setStatsId(null)
@@ -1596,9 +1619,9 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
   // conversation.
   const handleContinue = useCallback((sessionId: string): void => {
     markRead(sessionId)
-    sessions.open(sessionId as SessionId)
+    openSession(sessionId as SessionId)
     close()
-  }, [sessions, close])
+  }, [openSession, close])
 
   // Fork the session into a new child conversation (official sessions.fork,
   // cut at the last completed turn), then open the child and close the panel.
@@ -1606,10 +1629,9 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
     setBusyId(sessionId)
     setNotice(null)
     try {
-      const response = await api.sessions.fork({ sessionId: sessionId as WireSessionId })
-      if (!response.result.ok) throw new Error(response.result.error?.code ?? 'fork-failed')
-      const childId = response.result.value.sessionId
-      sessions.open(childId as SessionId)
+      const response = await forkSession(sessionId as SessionId)
+      if (!response.ok) throw new Error(response.error.code ?? 'fork-failed')
+      openSession(response.value.sessionId)
       close()
     } catch (error) {
       const code = error instanceof Error ? error.message : ''
@@ -1619,7 +1641,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
     } finally {
       setBusyId(null)
     }
-  }, [api, sessions, close, strings, showNotice])
+  }, [forkSession, openSession, close, strings, showNotice])
 
   // Pause a running session: cancel its current turn through the host.
   const handlePause = useCallback(async (sessionId: string): Promise<void> => {
@@ -1742,7 +1764,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
   }
 
   const renderRow = (session: SessionSummary, isArchived: boolean): ReactElement => {
-    const isCurrent = !isArchived && session.id === list.current
+    const isCurrent = !isArchived && session.id === currentSessionId
     const isRunning = session.running
     const busy = busyId === session.id
     const protectedReason = isCurrent ? strings.current : isRunning ? strings.running : ''
@@ -1859,7 +1881,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline',
         size: 'sm',
-        icon: createElement(IconTrashOutline16, { size: 16 }),
+        icon: createElement(IconTrashOutlineRegular, { size: 16 }),
         disabled: isRunning || busy,
         title: protectedReason !== '' && !isCurrent ? protectedReason : strings.delete,
         onClick: () => void handleDelete(session.id, session.displayTitle),
@@ -1896,7 +1918,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline',
         size: 'sm',
-        icon: createElement(IconTrashOutline16, { size: 16 }),
+        icon: createElement(IconTrashOutlineRegular, { size: 16 }),
         disabled: busy,
         onClick: () => void handlePurge(entry.sessionId, title),
         children: strings.purge,
@@ -1921,8 +1943,8 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       createElement('label', { className: 'dsh-delete-session__batch-select-all' },
         createElement('input', {
           type: 'checkbox',
-          checked: activeRows.some((session) => !session.running && session.id !== list.current)
-            && activeRows.every((session) => session.running || session.id === list.current || selectedIds.has(session.id)),
+          checked: activeRows.some((session) => !session.running && session.id !== currentSessionId)
+            && activeRows.every((session) => session.running || session.id === currentSessionId || selectedIds.has(session.id)),
           onChange: () => toggleSelectAll(),
           'aria-label': strings.selectAll,
         }),
@@ -1933,7 +1955,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline',
         size: 'sm',
-        icon: createElement(IconTrashOutline16, { size: 16 }),
+        icon: createElement(IconTrashOutlineRegular, { size: 16 }),
         disabled: selectedIds.size === 0,
         title: strings.batchDelete,
         onClick: () => void handleBatchDelete(),
@@ -2000,8 +2022,18 @@ export function apply(ctx: ClientContext): void {
   style.textContent = STYLE
   document.head.append(style)
 
-  // The wire client: official session.history RPC for stats folding.
-  const { api } = ctx.get('connection') as ConnectionHandle
+  // The generated Remote facade is the 0.1.7 wire client: history reads the
+  // current tail page (throughSeq -1 selects the live log cursor), and
+  // navigation belongs to the Workspace UI service.
+  const remote = ctx.remote
+  const loadHistoryPage = (sessionId: SessionId): Promise<RemoteResult<SessionPage>> =>
+    remote.session.page({ address: { kind: 'session', sessionId }, throughSeq: -1 }, new AbortController().signal)
+  const forkSession = (sessionId: SessionId): Promise<RemoteResult<{ sessionId: SessionId }>> =>
+    remote.session.fork({ sessionId })
+  const openSession = (sessionId: SessionId): void => {
+    const navigation = ctx.get('uiWorkspace') as { openSession(target: SessionId): void }
+    navigation.openSession(sessionId)
+  }
   // Resolve services at the ROOT context (apply time): the slot `inject:`
   // callbacks are evaluated inside the slot's own cordis scope, where these
   // services are not declared — accessing ctx.<service> there throws
@@ -2027,7 +2059,8 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => {
     let previous: string | undefined
     const check = (): void => {
-      const current = sessions.list.getSnapshot().current
+      const snapshot = sessions.list.getSnapshot()
+      const current = Object.values(snapshot.byId).find((session) => (session.retainedBy.mainView ?? 0) > 0)?.id
       if (current !== undefined && current !== previous && unreadState.ids.has(current)) {
         markRead(current)
       }
@@ -2131,7 +2164,7 @@ export function apply(ctx: ClientContext): void {
       order: 60,
       label: () => t('nav'),
       locale: NS,
-      inject: () => ({ api, sessions, workspaceActions: workspaces }),
+      inject: () => ({ loadHistoryPage, forkSession, openSession, sessions, workspaceActions: workspaces }),
     }, SessionManager)
     return () => {
       disposeRegistration()
@@ -2143,7 +2176,7 @@ export function apply(ctx: ClientContext): void {
   // also hosts the Session log button). Order, left to right:
   //   对话管理 (-40 host) → 对话管理按钮 (-30) → 删除本对话 (-10) → Session log (0)
   ctx.slots.inject('conversation.session.header.utilities', () => {
-    const common = () => ({ api, sessions })
+    const common = () => ({ loadHistoryPage, forkSession, openSession, sessionStatus: ctx.get<{ sessionStatus: { getSnapshot(): SessionStatusSnapshot; subscribe(listener: () => void): () => void } }>('uiSession').sessionStatus, workspacesService: workspaces, sessions })
     const disposers = [
       ctx.slots.register({
         name: 'conversation.session.header.utilities',
@@ -2175,10 +2208,12 @@ export function apply(ctx: ClientContext): void {
 
 interface ClientContext {
   slots: SlotRegistry
+  /** Generated Remote namespaces selected by this Client assembly. */
+  remote: ClientRemote
   get<T>(service: string): T
   effect(effect: () => void | (() => void), label?: string): void
-  sessions: import('@deepseek-ai/dsh-client-runtime/client').ISessions
-  workspaces: import('@deepseek-ai/dsh-client-runtime/client').IWorkspaces
+  sessions: ISessions
+  workspaces: IWorkspaces
   locale: {
     getLocale(): { active: string }
     subscribe(listener: () => void): () => void
@@ -2418,8 +2453,14 @@ function useDrawerState(): DrawerState {
 
 /** Injected share for the header buttons and drawer host. */
 interface DrawerInjected {
-  api: Pick<import('@deepseek-ai/dsh-api-remotes/client').IApiClient, 'sessions' | 'workspace'>
-  sessions: import('@deepseek-ai/dsh-client-runtime/client').ISessions
+  loadHistoryPage: (sessionId: SessionId) => Promise<RemoteResult<SessionPage>>
+  forkSession: (sessionId: SessionId) => Promise<RemoteResult<{ sessionId: SessionId }>>
+  openSession: (sessionId: SessionId) => void
+  /** Live Session status feed; session-scope slots receive no status hook. */
+  sessionStatus: { getSnapshot(): SessionStatusSnapshot; subscribe(listener: () => void): () => void }
+  /** Workspace registry projection and mutations (replaces the workspace.list RPC). */
+  workspacesService: IWorkspaces
+  sessions: ISessions
 }
 
 /** "对话管理" header button: open the drawer on the main list. */
@@ -2442,11 +2483,11 @@ function HeaderManageButton(_props: DrawerInjected): ReactElement {
  * (`session.list` / `workspace.list`) because session-scope slots do not
  * receive the `useSessions`/`useWorkspaces` hooks.
  */
-function SessionDrawerHost({ api, sessions }: DrawerInjected): ReactElement | null {
+function SessionDrawerHost(props: DrawerInjected): ReactElement | null {
   const state = useDrawerState()
   if (!state.open) return null
   return createPortal(
-    createElement(SessionDrawer, { api, sessions }),
+    createElement(SessionDrawer, props),
     document.body,
   )
 }
@@ -2467,7 +2508,7 @@ interface DrawerRow {
 }
 
 /** The right drawer: full session management (list, archived, trash). */
-function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
+function SessionDrawer({ loadHistoryPage, forkSession, openSession, sessionStatus, workspacesService, sessions }: DrawerInjected): ReactElement {
   const state = useDrawerState()
   const strings = useLocaleStrings()
   // Subscribe to the official session store (same source the sidebar uses):
@@ -2475,6 +2516,9 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
   const subscribe = useCallback((fn: () => void): (() => void) => sessions.list.subscribe(fn), [sessions])
   const getSnapshot = useCallback(() => sessions.list.getSnapshot(), [sessions])
   const list = useSyncExternalStore(subscribe, getSnapshot)
+  const statusSubscribe = useCallback((fn: () => void): (() => void) => sessionStatus.subscribe(fn), [sessionStatus])
+  const statusGetSnapshot = useCallback(() => sessionStatus.getSnapshot(), [sessionStatus])
+  const statuses = useSyncExternalStore(statusSubscribe, statusGetSnapshot)
   const [workspaces, setWorkspaces] = useState<WorkspaceView[]>([])
   const [archivedSet, setArchivedSet] = useState<ReadonlySet<string>>(new Set())
   const [loadError, setLoadError] = useState(false)
@@ -2502,17 +2546,20 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
     ? list.ids
       .map((id) => list.byId[id])
       .filter((summary) => !summary.blank)
-      .map((summary) => ({
-        sessionId: summary.id,
-        title: summary.displayTitle,
-        cwd: summary.cwd,
-        updatedAt: summary.updatedAt,
-        running: summary.running,
-        blank: summary.blank,
-        archived: archivedSet.has(summary.id),
-        pendingInteraction: summary.pendingInteraction,
-        completed: summary.completed,
-      }))
+      .map((summary) => {
+        const status = statuses.get(summary.id)
+        return {
+          sessionId: summary.id,
+          title: summary.displayTitle,
+          cwd: summary.cwd,
+          updatedAt: summary.updatedAt,
+          running: summary.running,
+          blank: summary.blank,
+          archived: archivedSet.has(summary.id),
+          pendingInteraction: status?.pendingInteraction,
+          completed: status?.completionUnread === true,
+        }
+      })
     : null
 
   // Close the per-row "More" menu on outside pointer-down.
@@ -2529,17 +2576,11 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      const [workspacesRes, trashRes] = await Promise.all([
-        api.workspace.list({}),
-        fetch(TRASH_ROUTE),
-      ])
-      if (workspacesRes.result.ok) {
-        setArchivedSet(new Set(workspacesRes.result.value.archivedSessionIds))
-        setWorkspaces(workspacesRes.result.value.items)
-        setLoadError(false)
-      } else {
-        setLoadError(true)
-      }
+      const trashRes = await fetch(TRASH_ROUTE)
+      const snapshot = workspacesService.list.getSnapshot()
+      setArchivedSet(new Set(snapshot.archivedSessionIds))
+      setWorkspaces([...snapshot.items])
+      setLoadError(snapshot.state === 'error')
       const trashData = (await trashRes.json().catch(() => ({}))) as TrashListResponse
       if (trashRes.ok && trashData.ok) {
         setTrash(trashData.entries)
@@ -2551,7 +2592,7 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
     } catch {
       setLoadError(true)
     }
-  }, [api])
+  }, [workspacesService])
 
   useEffect(() => {
     void load()
@@ -2670,16 +2711,16 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
     setStatsId(sessionId)
     setStats({ status: 'loading', data: null })
     try {
-      const response = await api.sessions.history({ sessionId: sessionId as WireSessionId })
-      if (!response.result.ok) {
+      const response = await loadHistoryPage(sessionId as SessionId)
+      if (!response.ok) {
         setStats({ status: 'error', data: null })
         return
       }
-      setStats({ status: 'ready', data: foldStats(response.result.value.events) })
+      setStats({ status: 'ready', data: foldStats(response.value.records) })
     } catch {
       setStats({ status: 'error', data: null })
     }
-  }, [api, statsId])
+  }, [loadHistoryPage, statsId])
 
   const closeStats = useCallback((): void => {
     setStatsId(null)
@@ -2704,19 +2745,18 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
 
   const handleContinue = useCallback((sessionId: string): void => {
     markRead(sessionId)
-    sessions.open(sessionId as SessionId)
+    openSession(sessionId as SessionId)
     setDrawer({ open: false })
-  }, [sessions])
+  }, [openSession])
 
   // Fork the session into a new child conversation, then open the child and
   // close the drawer.
   const handleFork = useCallback(async (sessionId: string): Promise<void> => {
     setBusyId(sessionId)
     try {
-      const response = await api.sessions.fork({ sessionId: sessionId as WireSessionId })
-      if (!response.result.ok) throw new Error(response.result.error?.code ?? 'fork-failed')
-      const childId = response.result.value.sessionId
-      sessions.open(childId as SessionId)
+      const response = await forkSession(sessionId as SessionId)
+      if (!response.ok) throw new Error(response.error.code ?? 'fork-failed')
+      openSession(response.value.sessionId)
       setDrawer({ open: false })
     } catch (error) {
       const code = error instanceof Error ? error.message : ''
@@ -2726,7 +2766,7 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
     } finally {
       setBusyId(null)
     }
-  }, [api, sessions, strings, showAlert])
+  }, [forkSession, openSession, strings, showAlert])
 
   const renderStatsDialog = (): ReactElement | null => {
     if (statsId === null || stats === null) return null
@@ -2911,7 +2951,7 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
       createElement(Button, {
         className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline', size: 'sm',
-        icon: createElement(IconTrashOutline16, { size: 16 }),
+        icon: createElement(IconTrashOutlineRegular, { size: 16 }),
         disabled: row.running || busy,
         title: row.running ? strings.running : strings.delete,
         onClick: () => void handleDelete(row.sessionId, row.title),
@@ -2944,7 +2984,7 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
       createElement(Button, {
         className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline', size: 'sm',
-        icon: createElement(IconTrashOutline16, { size: 16 }),
+        icon: createElement(IconTrashOutlineRegular, { size: 16 }),
         disabled: busy,
         onClick: () => void handlePurge(entry.sessionId, title), children: strings.purge,
       }),
@@ -2963,11 +3003,11 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
     [...list].sort((a, b) => (newestFirst ? b.updatedAt - a.updatedAt : a.updatedAt - b.updatedAt))
   const activeGroups: { workspaceId: string; title: string; rows: DrawerRow[] }[] = []
   for (const view of workspaces) {
-    const groupRows = sortRows(activeRows.filter((row) => view.sessionIds.includes(row.sessionId as WireSessionId)))
+    const groupRows = sortRows(activeRows.filter((row) => view.sessionIds.includes(row.sessionId as SessionId)))
     if (groupRows.length > 0) activeGroups.push({ workspaceId: view.workspaceId, title: view.title || view.path, rows: groupRows })
   }
   const ungroupedActive = sortRows(activeRows.filter((row) =>
-    !workspaces.some((view) => view.sessionIds.includes(row.sessionId as WireSessionId))))
+    !workspaces.some((view) => view.sessionIds.includes(row.sessionId as SessionId))))
   if (ungroupedActive.length > 0) activeGroups.push({ workspaceId: '__ungrouped__', title: strings.ungrouped, rows: ungroupedActive })
   groupsRef.current = activeGroups
 
@@ -2993,15 +3033,15 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
         beforeWorkspaceId = slot.slice(7)
       }
       // '__end__' leaves beforeWorkspaceId undefined → appended to the very end.
-      await api.workspace.insertBefore({
-        workspaceId: dragged as never,
-        beforeWorkspaceId: beforeWorkspaceId as never,
-      })
+      await workspacesService.insertBefore(
+        dragged as WorkspaceId,
+        beforeWorkspaceId === undefined ? undefined : beforeWorkspaceId as WorkspaceId,
+      )
       await load()
     } catch {
       // Reordering is best-effort; the next poll re-baselines the list.
     }
-  }, [api, load, dragWorkspaceId])
+  }, [workspacesService, load, dragWorkspaceId])
 
   // Move a workspace to the top of the group list.
   const moveWorkspaceToTop = useCallback(async (workspaceId: string): Promise<void> => {
@@ -3009,15 +3049,12 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
     const firstId = order.find((id) => id !== '__ungrouped__')
     if (firstId === undefined || firstId === workspaceId) return
     try {
-      await api.workspace.insertBefore({
-        workspaceId: workspaceId as never,
-        beforeWorkspaceId: firstId as never,
-      })
+      await workspacesService.insertBefore(workspaceId as WorkspaceId, firstId as WorkspaceId)
       await load()
     } catch {
       // Best-effort; the next poll re-baselines the list.
     }
-  }, [api, load])
+  }, [workspacesService, load])
 
   // Rename a workspace through a prompt dialog.
   const renameWorkspace = useCallback(async (group: { workspaceId: string; title: string }): Promise<void> => {
@@ -3026,29 +3063,24 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
     const title = input.trim()
     if (title === '' || title === group.title) return
     try {
-      await api.workspace.rename({
-        workspaceId: group.workspaceId as never,
-        title: title as never,
-      })
+      await workspacesService.rename(group.workspaceId as WorkspaceId, title)
       await load()
     } catch {
       // Best-effort; the next poll re-baselines the list.
     }
-  }, [api, load])
+  }, [workspacesService, load])
 
   // Delete a workspace after a confirmation dialog; its sessions fall back
   // to the ungrouped bucket.
   const deleteWorkspace = useCallback(async (group: { workspaceId: string; title: string }): Promise<void> => {
     if (!window.confirm(strings.workspaceDeleteConfirm.replace('{title}', group.title))) return
     try {
-      await api.workspace.delete({
-        workspaceId: group.workspaceId as never,
-      })
+      await workspacesService.delete(group.workspaceId as WorkspaceId)
       await load()
     } catch {
       // Best-effort; the next poll re-baselines the list.
     }
-  }, [api, load])
+  }, [workspacesService, load])
 
   const renderWorkspaceLabel = (
     group: { workspaceId: string; title: string; rows: DrawerRow[] },

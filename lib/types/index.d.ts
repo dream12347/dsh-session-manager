@@ -24,6 +24,9 @@
  *  3. Drop the trash entry.
  *
  * Purge flow: remove the artifact directory and the trash entry.
+ *
+ * Startup-teardown safety: every registration runs synchronously in apply();
+ * the storage-domain continuation only binds data (fixed 2026-09-12).
  */
 import type { Context } from '@deepseek-ai/cordis';
 import { z } from 'zod';

@@ -1,4 +1,7 @@
-import type { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client';
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client';
+import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client';
+import type { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client';
+import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client';
 export declare const name = "dsh-session-manager/client";
 export declare const inject: string[];
 /** Locale namespace id registered under ctx.locale. */
@@ -12,10 +15,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export declare function apply(ctx: ClientContext): void;
 interface ClientContext {
     slots: SlotRegistry;
+    /** Generated Remote namespaces selected by this Client assembly. */
+    remote: ClientRemote;
     get<T>(service: string): T;
     effect(effect: () => void | (() => void), label?: string): void;
-    sessions: import('@deepseek-ai/dsh-client-runtime/client').ISessions;
-    workspaces: import('@deepseek-ai/dsh-client-runtime/client').IWorkspaces;
+    sessions: ISessions;
+    workspaces: IWorkspaces;
     locale: {
         getLocale(): {
             active: string;
