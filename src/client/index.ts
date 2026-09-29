@@ -26,7 +26,8 @@ import type {} from '@deepseek-ai/dsh-session-title/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ConnectionHandle, HistoryEntry, SessionId as WireSessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { WorkspaceView } from '@deepseek-ai/dsh-api-remotes/client'
-import { Button, IconTrashOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createElement, Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -41,6 +42,10 @@ import {
   type TrashEntry,
   type TrashListResponse,
 } from '../contract.ts'
+
+/** `IconTrashOutline16` was renamed `IconTrashOutlineRegular` in DSH 0.2.0. */
+const TrashIcon = ((primitives as Record<string, unknown>).IconTrashOutline16
+  ?? (primitives as Record<string, unknown>).IconTrashOutlineRegular) as (props: { size?: number }) => ReactElement
 
 export const name = 'dsh-session-manager/client'
 export const inject = ['slots', 'locale', 'connection', 'sessions', 'workspaces']
@@ -1859,7 +1864,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline',
         size: 'sm',
-        icon: createElement(IconTrashOutline16, { size: 16 }),
+        icon: createElement(TrashIcon, { size: 16 }),
         disabled: isRunning || busy,
         title: protectedReason !== '' && !isCurrent ? protectedReason : strings.delete,
         onClick: () => void handleDelete(session.id, session.displayTitle),
@@ -1896,7 +1901,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline',
         size: 'sm',
-        icon: createElement(IconTrashOutline16, { size: 16 }),
+        icon: createElement(TrashIcon, { size: 16 }),
         disabled: busy,
         onClick: () => void handlePurge(entry.sessionId, title),
         children: strings.purge,
@@ -1933,7 +1938,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline',
         size: 'sm',
-        icon: createElement(IconTrashOutline16, { size: 16 }),
+        icon: createElement(TrashIcon, { size: 16 }),
         disabled: selectedIds.size === 0,
         title: strings.batchDelete,
         onClick: () => void handleBatchDelete(),
@@ -2911,7 +2916,7 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
       createElement(Button, {
         className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline', size: 'sm',
-        icon: createElement(IconTrashOutline16, { size: 16 }),
+        icon: createElement(TrashIcon, { size: 16 }),
         disabled: row.running || busy,
         title: row.running ? strings.running : strings.delete,
         onClick: () => void handleDelete(row.sessionId, row.title),
@@ -2944,7 +2949,7 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
       createElement(Button, {
         className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline', size: 'sm',
-        icon: createElement(IconTrashOutline16, { size: 16 }),
+        icon: createElement(TrashIcon, { size: 16 }),
         disabled: busy,
         onClick: () => void handlePurge(entry.sessionId, title), children: strings.purge,
       }),
