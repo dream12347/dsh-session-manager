@@ -97,6 +97,7 @@ const MAX_BODY_BYTES = 64 * 1024
 const SESSION_ID_RE = /^(session-)?[0-9a-fA-F-]+$/
 /** Maximum trash entries kept; the oldest overflow is purged automatically. */
 export const TRASH_LIMIT = 10
+const STATS_EVENT_LIMIT = 5000
 
 export function openFolderCommand(platform: NodeJS.Platform): string {
   if (platform === 'win32') return 'explorer'
@@ -673,6 +674,45 @@ function setup(ctx: Context): Promise<() => Promise<void>> {
         } catch (error) {
           ctx.logger.warn('[dsh-session-manager] pause failed:', error)
           respond(res, 500, { ok: false, error: 'pause-failed' })
+        }
+      },
+    })
+
+    // POST /dsh-session-manager/stats — minimal event list for the client stats
+    // fold (the official session.history RPC no longer exists in DSH 0.2.0).
+    ctx.webServer.register({
+      kind: 'exact',
+      path: `${ROUTE_PREFIX}/stats`,
+      handler: async (req, res) => {
+        if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
+        let body: unknown
+        try {
+          body = await readJsonBody(req)
+        } catch {
+          return respond(res, 400, { ok: false, error: 'bad-request' })
+        }
+        const id = parseSessionId(body)
+        if (id === undefined) return respond(res, 400, { ok: false, error: 'invalid-session-id' })
+        try {
+          const handle = await ctx.sessionPersistence.open(id, 'read')
+          try {
+            const { events } = await handle.read()
+            const wanted = new Set(['turn/start', 'user/message', 'assistant/message', 'tool/call'])
+            const entries = events
+              .filter((event) => wanted.has(event.type))
+              .slice(-STATS_EVENT_LIMIT)
+              .map((event) => ({
+                type: event.type,
+                time: event.time,
+                name: event.type === 'tool/call' ? (event.data as { name?: string }).name : undefined,
+              }))
+            respond(res, 200, { ok: true, entries })
+          } finally {
+            await handle.close()
+          }
+        } catch (error) {
+          ctx.logger.warn('[dsh-session-manager] stats failed:', error)
+          respond(res, 500, { ok: false, error: 'stats-failed' })
         }
       },
     })
