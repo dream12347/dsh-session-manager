@@ -26,7 +26,8 @@ import type {} from '@deepseek-ai/dsh-session-title/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ConnectionHandle, HistoryEntry, SessionId as WireSessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { WorkspaceView } from '@deepseek-ai/dsh-api-remotes/client'
-import { Button, IconTrashOutline16, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createElement, Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -36,11 +37,16 @@ import {
   PAUSE_ROUTE,
   PURGE_ROUTE,
   RESTORE_ROUTE,
+  STATS_ROUTE,
   TRASH_ROUTE,
   type ActionResultResponse,
   type TrashEntry,
   type TrashListResponse,
 } from '../contract.ts'
+
+/** `IconTrashOutline16` was renamed `IconTrashOutlineRegular` in DSH 0.2.0. */
+const TrashIcon = ((primitives as Record<string, unknown>).IconTrashOutline16
+  ?? (primitives as Record<string, unknown>).IconTrashOutlineRegular) as (props: { size?: number }) => ReactElement
 
 export const name = 'dsh-session-manager/client'
 export const inject = ['slots', 'locale', 'connection', 'sessions', 'workspaces']
@@ -1244,7 +1250,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
     index: number,
   ): ReactElement => {
     const draggable = group.workspaceId !== '__ungrouped__'
-    const workspaceSelectable = group.rows.filter((session) => !session.running && session.id !== list.current)
+    const workspaceSelectable = group.rows.filter((session) => !session.running && session.id !== currentSessionId(list))
     const workspaceAllSelected = workspaceSelectable.length > 0 && workspaceSelectable.every((session) => selectedIds.has(session.id))
     const workspaceSomeSelected = workspaceSelectable.some((session) => selectedIds.has(session.id))
     return createElement('div', {
@@ -1442,7 +1448,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
   const toggleSelectAll = useCallback((): void => {
     setSelectedIds((previous) => {
       const next = new Set(previous)
-      const selectable = activeRows.filter((session) => !session.running && session.id !== list.current)
+      const selectable = activeRows.filter((session) => !session.running && session.id !== currentSessionId(list))
       const allSelected = selectable.length > 0 && selectable.every((session) => next.has(session.id))
       for (const session of selectable) {
         if (allSelected) next.delete(session.id)
@@ -1450,12 +1456,12 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       }
       return next
     })
-  }, [activeRows, list.current])
+  }, [activeRows, currentSessionId(list)])
 
   const toggleSelectWorkspace = useCallback((group: { workspaceId: string; rows: SessionSummary[] }): void => {
     setSelectedIds((previous) => {
       const next = new Set(previous)
-      const selectable = group.rows.filter((session) => !session.running && session.id !== list.current)
+      const selectable = group.rows.filter((session) => !session.running && session.id !== currentSessionId(list))
       const allSelected = selectable.length > 0 && selectable.every((session) => next.has(session.id))
       for (const session of selectable) {
         if (allSelected) next.delete(session.id)
@@ -1463,7 +1469,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       }
       return next
     })
-  }, [list.current])
+  }, [currentSessionId(list)])
 
   const handleBatchDelete = useCallback(async (): Promise<void> => {
     const ids = [...selectedIds]
@@ -1742,7 +1748,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
   }
 
   const renderRow = (session: SessionSummary, isArchived: boolean): ReactElement => {
-    const isCurrent = !isArchived && session.id === list.current
+    const isCurrent = !isArchived && session.id === currentSessionId(list)
     const isRunning = session.running
     const busy = busyId === session.id
     const protectedReason = isCurrent ? strings.current : isRunning ? strings.running : ''
@@ -1859,7 +1865,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline',
         size: 'sm',
-        icon: createElement(IconTrashOutline16, { size: 16 }),
+        icon: createElement(TrashIcon, { size: 16 }),
         disabled: isRunning || busy,
         title: protectedReason !== '' && !isCurrent ? protectedReason : strings.delete,
         onClick: () => void handleDelete(session.id, session.displayTitle),
@@ -1896,7 +1902,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline',
         size: 'sm',
-        icon: createElement(IconTrashOutline16, { size: 16 }),
+        icon: createElement(TrashIcon, { size: 16 }),
         disabled: busy,
         onClick: () => void handlePurge(entry.sessionId, title),
         children: strings.purge,
@@ -1921,8 +1927,8 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       createElement('label', { className: 'dsh-delete-session__batch-select-all' },
         createElement('input', {
           type: 'checkbox',
-          checked: activeRows.some((session) => !session.running && session.id !== list.current)
-            && activeRows.every((session) => session.running || session.id === list.current || selectedIds.has(session.id)),
+          checked: activeRows.some((session) => !session.running && session.id !== currentSessionId(list))
+            && activeRows.every((session) => session.running || session.id === currentSessionId(list) || selectedIds.has(session.id)),
           onChange: () => toggleSelectAll(),
           'aria-label': strings.selectAll,
         }),
@@ -1933,7 +1939,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
         className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline',
         size: 'sm',
-        icon: createElement(IconTrashOutline16, { size: 16 }),
+        icon: createElement(TrashIcon, { size: 16 }),
         disabled: selectedIds.size === 0,
         title: strings.batchDelete,
         onClick: () => void handleBatchDelete(),
@@ -1994,6 +2000,76 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
   )
 }
 
+/**
+ * The session shown in the main view. DSH >= 0.2.0 dropped `current` from the
+ * list snapshot; the main view is the session retained as `mainView`.
+ */
+function currentSessionId(list: SessionListState): string | undefined {
+  const legacy = (list as { current?: string }).current
+  if (legacy !== undefined) return legacy
+  return list.ids.find((id) => ((list.byId[id]?.retainedBy as { mainView?: number } | undefined)?.mainView ?? 0) > 0)
+}
+
+type CompatResult<T> = { result: { ok: true; value: T } | { ok: false; error: { code: string } } }
+
+const compatOk = <T>(value: T): CompatResult<T> => ({ result: { ok: true, value } })
+const compatFail = (error: unknown): CompatResult<never> => {
+  const code = (error as { rpcError?: { code?: string } } | null)?.rpcError?.code
+    ?? (error instanceof Error ? error.message : 'failed')
+  return { result: { ok: false, error: { code } } }
+}
+
+/**
+ * Wire client. DSH 0.1.x exposes it as `ctx.get('connection').api`; DSH >= 0.2.0
+ * removed it, so the few calls this plugin needs are rebuilt from the new
+ * controllers (`ctx.workspaces`, `ctx.uiWorkspace`) and the plugin's own host route.
+ */
+function createCompatApi(ctx: ClientContext): unknown {
+  const workspaces = ctx.workspaces as unknown as {
+    list: { getSnapshot(): { items: unknown[]; archivedSessionIds: string[] } }
+    insertBefore(id: unknown, before?: unknown): Promise<void>
+    rename(id: unknown, title: string): Promise<unknown>
+    delete(id: unknown): Promise<void>
+  }
+  const uiWorkspace = (ctx as unknown as { get<T>(name: string): T }).get<{
+    forkSession(sessionId: string): Promise<string>
+  }>('uiWorkspace')
+  const guard = async <T>(run: () => Promise<T>): Promise<CompatResult<T>> => {
+    try {
+      return compatOk(await run())
+    } catch (error) {
+      return compatFail(error)
+    }
+  }
+  return {
+    workspace: {
+      list: async () => {
+        const snapshot = workspaces.list.getSnapshot()
+        return compatOk({ archivedSessionIds: snapshot.archivedSessionIds, items: snapshot.items })
+      },
+      insertBefore: (req: { workspaceId: unknown; beforeWorkspaceId?: unknown }) =>
+        guard(() => workspaces.insertBefore(req.workspaceId, req.beforeWorkspaceId)),
+      rename: (req: { workspaceId: unknown; title: string }) => guard(() => workspaces.rename(req.workspaceId, req.title)),
+      delete: (req: { workspaceId: unknown }) => guard(() => workspaces.delete(req.workspaceId)),
+    },
+    sessions: {
+      history: (req: { sessionId: string }) => guard(async () => {
+        const response = await fetch(STATS_ROUTE, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sessionId: req.sessionId }),
+        })
+        const body = await response.json() as { ok?: boolean; entries?: { type: string; time: number; name?: string }[] }
+        if (!response.ok || body.ok !== true) throw new Error('stats-failed')
+        return {
+          events: (body.entries ?? []).map((entry) => ({ event: { type: entry.type, time: entry.time, data: { name: entry.name } } })),
+        }
+      }),
+      fork: (req: { sessionId: string }) => guard(async () => ({ sessionId: await uiWorkspace.forkSession(req.sessionId) })),
+    },
+  }
+}
+
 export function apply(ctx: ClientContext): void {
   const style = document.createElement('style')
   style.id = STYLE_ID
@@ -2001,13 +2077,21 @@ export function apply(ctx: ClientContext): void {
   document.head.append(style)
 
   // The wire client: official session.history RPC for stats folding.
-  const { api } = ctx.get('connection') as ConnectionHandle
+  const api = ((ctx.get('connection') as { api?: ConnectionHandle['api'] }).api
+    ?? createCompatApi(ctx)) as ConnectionHandle['api']
   // Resolve services at the ROOT context (apply time): the slot `inject:`
   // callbacks are evaluated inside the slot's own cordis scope, where these
   // services are not declared — accessing ctx.<service> there throws
   // `cannot get property "... " without inject`. Declared BEFORE any
   // ctx.effect callback (those run synchronously) to avoid TDZ crashes.
-  const sessions = ctx.sessions
+  const openSessionCompat = (id: string): void => {
+    const legacy = (ctx.sessions as unknown as { open?(sessionId: string): void }).open
+    if (typeof legacy === 'function') legacy.call(ctx.sessions, id)
+    else ctx.get<{ openSession(sessionId: string): void }>('uiWorkspace').openSession(id)
+  }
+  const sessions = new Proxy(ctx.sessions, {
+    get: (target, key, receiver) => (key === 'open' ? openSessionCompat : Reflect.get(target, key, receiver)),
+  })
   const workspaces = ctx.workspaces
 
   const syncLocale = (): void => {
@@ -2027,7 +2111,7 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => {
     let previous: string | undefined
     const check = (): void => {
-      const current = sessions.list.getSnapshot().current
+      const current = currentSessionId(sessions.list.getSnapshot())
       if (current !== undefined && current !== previous && unreadState.ids.has(current)) {
         markRead(current)
       }
@@ -2911,7 +2995,7 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
       createElement(Button, {
         className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline', size: 'sm',
-        icon: createElement(IconTrashOutline16, { size: 16 }),
+        icon: createElement(TrashIcon, { size: 16 }),
         disabled: row.running || busy,
         title: row.running ? strings.running : strings.delete,
         onClick: () => void handleDelete(row.sessionId, row.title),
@@ -2944,7 +3028,7 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
       createElement(Button, {
         className: 'dsh-row-action dsh-row-action--danger',
         variant: 'outline', size: 'sm',
-        icon: createElement(IconTrashOutline16, { size: 16 }),
+        icon: createElement(TrashIcon, { size: 16 }),
         disabled: busy,
         onClick: () => void handlePurge(entry.sessionId, title), children: strings.purge,
       }),

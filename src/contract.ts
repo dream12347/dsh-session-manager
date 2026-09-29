@@ -16,6 +16,8 @@ export const TRASH_ROUTE = '/dsh-session-manager/trash'
 export const OPEN_FOLDER_ROUTE = '/dsh-session-manager/open-folder'
 /** Stop a running session's current turn (pause). */
 export const PAUSE_ROUTE = '/dsh-session-manager/pause'
+/** Read a session's event log for the client stats fold (DSH >= 0.2.0 has no history RPC). */
+export const STATS_ROUTE = '/dsh-session-manager/stats'
 /** Write the context compaction threshold into the official compaction plugin config. */
 export const COMPACTION_THRESHOLD_ROUTE = '/dsh-session-manager/compaction-threshold'
 

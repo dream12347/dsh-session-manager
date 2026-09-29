@@ -28,6 +28,20 @@
 
 ## 安装
 
+### 从 Release（推荐，适配 DSH 0.2.0）
+
+```sh
+dsh plugin --profile web add https://github.com/tasselx/dsh-session-manager/releases/latest/download/dsh-session-manager.tgz
+```
+
+也可以先下载 `dsh-session-manager.tgz` 再本地安装：
+
+```sh
+dsh plugin --profile web add /absolute/path/to/dsh-session-manager.tgz
+```
+
+> 如果安装了 dshmarket，请确认 `~/.dsh/profiles/<profile>/.dsh-market/state.json` 的 `disabled` 数组里没有 `dsh-session-manager`，否则插件会在启动时被重放禁用。
+
 ### 从 GitHub
 
 ```sh
@@ -125,13 +139,16 @@ dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.2.2.tgz
 
 ## 兼容性
 
-当前版本适配 DSH `0.1.1-rc.1`（依赖 `settings.section` / `settings.general.item` / `conversation.session.header.utilities` 插槽与 `ctx.sessionPersistence` / `ctx.workspaceRegistry` / `ctx.agents` / `ctx.storageDomain` / `ctx.agentPresets` 服务）。DSH 版本升级后如插槽或服务 API 变化，需要同步适配。
+当前版本适配 DSH `0.1.1-rc.1` 与 `0.2.0-rc.2`（依赖 `settings.section` / `settings.general.item` / `conversation.session.header.utilities` 插槽与 `ctx.sessionPersistence` / `ctx.workspaceRegistry` / `ctx.agents` / `ctx.storageDomain` / `ctx.agentPresets` 服务）。DSH 版本升级后如插槽或服务 API 变化，需要同步适配。
 
 ## 开发
 
 ```sh
 pnpm install        # 安装依赖（@deepseek-ai 系列为 link 本地开发依赖）
 pnpm run check      # typecheck + test + build
+pnpm run pack:release  # 生成固定文件名 dsh-session-manager.tgz
 ```
+
+发布 Release 时，请始终以 `dsh-session-manager.tgz` 作为附件名上传（`gh release create <tag> dsh-session-manager.tgz`），这样 `releases/latest/download/dsh-session-manager.tgz` 下载地址保持不变。
 
 `lib/` 为提交的构建产物，修改源码后必须重新构建并提交 `lib/`。

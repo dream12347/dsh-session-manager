@@ -28,6 +28,20 @@ Possibly the most feature-complete DSH session manager plugin out there: full se
 
 ## Install
 
+### From a release (recommended, DSH 0.2.0)
+
+```sh
+dsh plugin --profile web add https://github.com/tasselx/dsh-session-manager/releases/latest/download/dsh-session-manager.tgz
+```
+
+Or download `dsh-session-manager.tgz` first and install it locally:
+
+```sh
+dsh plugin --profile web add /absolute/path/to/dsh-session-manager.tgz
+```
+
+> If dshmarket is installed, make sure the `disabled` array in `~/.dsh/profiles/<profile>/.dsh-market/state.json` does not contain `dsh-session-manager`; otherwise the plugin is disabled again at every startup.
+
 ### From GitHub
 
 ```sh
@@ -124,13 +138,16 @@ The dot next to a session's title shows one of four states: **blue** = manually 
 
 ## Compatibility
 
-Current version targets DSH `0.1.1-rc.1` (depends on the `settings.section` / `settings.general.item` / `conversation.session.header.utilities` slots and the `ctx.sessionPersistence` / `ctx.workspaceRegistry` / `ctx.agents` / `ctx.storageDomain` / `ctx.agentPresets` services). If slots or service APIs change in a future DSH version, the plugin needs a matching update.
+Current version targets DSH `0.1.1-rc.1` and `0.2.0-rc.2` (depends on the `settings.section` / `settings.general.item` / `conversation.session.header.utilities` slots and the `ctx.sessionPersistence` / `ctx.workspaceRegistry` / `ctx.agents` / `ctx.storageDomain` / `ctx.agentPresets` services). If slots or service APIs change in a future DSH version, the plugin needs a matching update.
 
 ## Development
 
 ```sh
 pnpm install        # installs dependencies (@deepseek-ai packages are linked local dev dependencies)
 pnpm run check      # typecheck + test + build
+pnpm run pack:release  # produces the fixed-name dsh-session-manager.tgz
 ```
+
+When publishing a release, always upload the asset as `dsh-session-manager.tgz` (`gh release create <tag> dsh-session-manager.tgz`) so the `releases/latest/download/dsh-session-manager.tgz` URL stays stable.
 
 `lib/` holds the committed build artifacts: rebuild and commit `lib/` with every source change.

@@ -35,7 +35,7 @@ import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-storage-domain'
 // Type-only: brings the ctx.agentPresets service merge into this program.
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 // Type-only: brings the ctx.loader merge into this program.
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
@@ -48,15 +48,43 @@ import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 
 export const name = 'dsh-session-manager'
-export const inject = [
+/**
+ * Services are injected through a scoped `ctx.inject` in `apply` instead: in
+ * DSH 0.2.0 a plugin-level `webServer` injection is dropped again right after
+ * mount and the plugin is never re-applied.
+ */
+export const inject: string[] = []
+const SCOPED_SERVICES = [
   'webServer',
   'sessionPersistence',
-  'workspaceRegistry',
   'agents',
   'storageDomain',
   'loader',
-  'agentPresets',
 ]
+
+type StoredHeader = { id: SessionId; cwd?: string }
+
+/**
+ * Resolved lazily: in DSH 0.2.0 the registry activates late, and injecting it
+ * would keep this plugin from ever mounting.
+ */
+function workspaceRegistry(ctx: Context): Context['workspaceRegistry'] {
+  const registry = ctx.get('workspaceRegistry')
+  if (registry === undefined) throw new Error('workspace registry not ready')
+  return registry
+}
+
+/** DSH >= 0.2.0 lists snapshots (`{ header }`); older versions list bare headers. */
+function compatHeader(item: unknown): StoredHeader {
+  const snapshot = item as { header?: StoredHeader }
+  return snapshot.header ?? (item as StoredHeader)
+}
+
+/** `locate` became private (but remains at runtime) in DSH 0.2.0. */
+function locateSession(ctx: Context, meta: StoredHeader): { path: string } | undefined {
+  const persistence = ctx.sessionPersistence as unknown as { locate?(meta: StoredHeader): { path: string } | undefined }
+  return persistence.locate?.(meta)
+}
 
 const ROUTE_PREFIX = '/dsh-session-manager'
 const MAX_BODY_BYTES = 64 * 1024
@@ -69,6 +97,7 @@ const MAX_BODY_BYTES = 64 * 1024
 const SESSION_ID_RE = /^(session-)?[0-9a-fA-F-]+$/
 /** Maximum trash entries kept; the oldest overflow is purged automatically. */
 export const TRASH_LIMIT = 10
+const STATS_EVENT_LIMIT = 5000
 
 export function openFolderCommand(platform: NodeJS.Platform): string {
   if (platform === 'win32') return 'explorer'
@@ -282,7 +311,7 @@ async function writePresetComposition(path: string, ratio: number): Promise<void
  * silent un-archives/archives that disagree with what clients see.
  */
 function syncRegistryState(ctx: Context, next: unknown): void {
-  const registry = ctx.workspaceRegistry as unknown as { state?: unknown }
+  const registry = ctx.get('workspaceRegistry') as unknown as { state?: unknown } | undefined
   if (registry !== undefined && 'state' in registry) {
     registry.state = next
   }
@@ -317,7 +346,7 @@ async function applyThresholdToLiveAgents(ctx: Context, ratio: number): Promise<
       | { serviceFor?(agent: { ctx: Context }, name: string): unknown }
       | undefined
     if (presets?.serviceFor === undefined) return
-    const headers = await ctx.sessionPersistence.list()
+    const headers = (await ctx.sessionPersistence.list()).map(compatHeader)
     for (const header of headers) {
       const agent = ctx.agents.get(header.id)
       if (agent === undefined) continue
@@ -332,8 +361,13 @@ async function applyThresholdToLiveAgents(ctx: Context, ratio: number): Promise<
   }
 }
 
-export function apply(ctx: Context): Promise<() => Promise<void>> {
+function setup(ctx: Context): Promise<() => Promise<void>> {
   return ctx.storageDomain.open(trashDomainSpec).then((trash) => {
+    // The fiber can be disposed (dependency restart) while the domain opens.
+    if ((ctx as unknown as { fiber?: { uid: unknown } }).fiber?.uid === null) {
+      void trash.close()
+      return async () => {}
+    }
     const getEntries = (): TrashEntry[] => (trash.global.get() as { entries: TrashEntry[] }).entries
     const setEntries = (entries: TrashEntry[]): Promise<void> => {
       const current = trash.global.get() as { entries: TrashEntry[]; thresholdRatio?: number }
@@ -406,7 +440,7 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
 
         try {
           await withMutationLock(async () => {
-            const headers = await ctx.sessionPersistence.list()
+            const headers = (await ctx.sessionPersistence.list()).map(compatHeader)
             const meta = headers.find((header) => header.id === id)
             const agent = ctx.agents.get(id)
             const live = agent !== undefined
@@ -418,7 +452,7 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
 
             let originalPath: string | undefined
             if (meta !== undefined) {
-              const location = ctx.sessionPersistence.locate(meta)
+              const location = locateSession(ctx, meta)
               if (location === undefined) {
                 respond(res, 500, { ok: false, error: 'no-artifact-location' })
                 return
@@ -437,7 +471,7 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
             try {
               failureCode = 'archive-failed'
               archiveStarted = true
-              await ctx.workspaceRegistry.archiveSession(id)
+              await workspaceRegistry(ctx).archiveSession(id)
               failureCode = 'delete-failed'
 
               {
@@ -530,7 +564,7 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
             // No trash entry: this is an archived-but-present session being
             // restored from the "已归档" group. Just un-archive it.
             if (entry === undefined) {
-              const headers = await ctx.sessionPersistence.list()
+              const headers = (await ctx.sessionPersistence.list()).map(compatHeader)
               const meta = headers.find((header) => header.id === id)
               const agent = ctx.agents.get(id)
               if (meta === undefined && agent === undefined) {
@@ -644,6 +678,45 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
       },
     })
 
+    // POST /dsh-session-manager/stats — minimal event list for the client stats
+    // fold (the official session.history RPC no longer exists in DSH 0.2.0).
+    ctx.webServer.register({
+      kind: 'exact',
+      path: `${ROUTE_PREFIX}/stats`,
+      handler: async (req, res) => {
+        if (req.method !== 'POST') return respond(res, 405, { ok: false, error: 'method-not-allowed' })
+        let body: unknown
+        try {
+          body = await readJsonBody(req)
+        } catch {
+          return respond(res, 400, { ok: false, error: 'bad-request' })
+        }
+        const id = parseSessionId(body)
+        if (id === undefined) return respond(res, 400, { ok: false, error: 'invalid-session-id' })
+        try {
+          const handle = await ctx.sessionPersistence.open(id, 'read')
+          try {
+            const { events } = await handle.read()
+            const wanted = new Set(['turn/start', 'user/message', 'assistant/message', 'tool/call'])
+            const entries = events
+              .filter((event) => wanted.has(event.type))
+              .slice(-STATS_EVENT_LIMIT)
+              .map((event) => ({
+                type: event.type,
+                time: event.time,
+                name: event.type === 'tool/call' ? (event.data as { name?: string }).name : undefined,
+              }))
+            respond(res, 200, { ok: true, entries })
+          } finally {
+            await handle.close()
+          }
+        } catch (error) {
+          ctx.logger.warn('[dsh-session-manager] stats failed:', error)
+          respond(res, 500, { ok: false, error: 'stats-failed' })
+        }
+      },
+    })
+
     // GET /dsh-session-manager/trash — list trash entries.
     ctx.webServer.register({
       kind: 'exact',
@@ -700,10 +773,13 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
         try {
           await withMutationLock(async () => {
             await setConfiguredThreshold(ratio)
-            const name = defaultPresetName(ctx)
-            const preset = await resolvePresetComposition(ctx, name)
-            if (preset.trust !== 'system') {
-              await writePresetComposition(preset.path, ratio)
+            // DSH >= 0.2.0 presets are declarative config rows without a
+            // composition file; only write through when a user file exists.
+            try {
+              const preset = await resolvePresetComposition(ctx, defaultPresetName(ctx))
+              if (preset.trust !== 'system') await writePresetComposition(preset.path, ratio)
+            } catch (error) {
+              ctx.logger.debug('[dsh-session-manager] preset file not updated:', error)
             }
             await applyThresholdToLiveAgents(ctx, ratio)
             respond(res, 200, { ok: true })
@@ -735,10 +811,10 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
         try {
           // Prefer the live artifact location; fall back to the trash entry.
           let dir: string | undefined
-          const headers = await ctx.sessionPersistence.list()
+          const headers = (await ctx.sessionPersistence.list()).map(compatHeader)
           const meta = headers.find((header) => header.id === id)
           if (meta !== undefined) {
-            const location = ctx.sessionPersistence.locate(meta)
+            const location = locateSession(ctx, meta)
             if (location !== undefined) dir = dirname(location.path)
           }
           if (dir === undefined || !existsSync(dir)) {
@@ -760,5 +836,12 @@ export function apply(ctx: Context): Promise<() => Promise<void>> {
     })
 
     return () => trash.close()
+  })
+}
+
+export function apply(ctx: Context): void {
+  ctx.inject(SCOPED_SERVICES, (scoped: Context) => {
+    const ready = setup(scoped)
+    scoped.effect(() => () => ready.then((dispose) => dispose()).catch(() => {}), 'dsh-session-manager')
   })
 }
