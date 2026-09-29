@@ -28,7 +28,8 @@
     "build": "tsdown && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
-    "check": "pnpm typecheck && pnpm test && pnpm build"
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "pack:release": "npm pack --ignore-scripts && mv dsh-session-manager-*.tgz dsh-session-manager.tgz"
   },
   "dsh": {
     "bundle": {

@@ -146,6 +146,9 @@ dsh plugin --profile web add /absolute/path/to/dsh-session-manager-0.2.2.tgz
 ```sh
 pnpm install        # 安装依赖（@deepseek-ai 系列为 link 本地开发依赖）
 pnpm run check      # typecheck + test + build
+pnpm run pack:release  # 生成固定文件名 dsh-session-manager.tgz
 ```
+
+发布 Release 时，请始终以 `dsh-session-manager.tgz` 作为附件名上传（`gh release create <tag> dsh-session-manager.tgz`），这样 `releases/latest/download/dsh-session-manager.tgz` 下载地址保持不变。
 
 `lib/` 为提交的构建产物，修改源码后必须重新构建并提交 `lib/`。

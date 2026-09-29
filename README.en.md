@@ -145,6 +145,9 @@ Current version targets DSH `0.1.1-rc.1` and `0.2.0-rc.2` (depends on the `setti
 ```sh
 pnpm install        # installs dependencies (@deepseek-ai packages are linked local dev dependencies)
 pnpm run check      # typecheck + test + build
+pnpm run pack:release  # produces the fixed-name dsh-session-manager.tgz
 ```
+
+When publishing a release, always upload the asset as `dsh-session-manager.tgz` (`gh release create <tag> dsh-session-manager.tgz`) so the `releases/latest/download/dsh-session-manager.tgz` URL stays stable.
 
 `lib/` holds the committed build artifacts: rebuild and commit `lib/` with every source change.
