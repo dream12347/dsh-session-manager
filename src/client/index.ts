@@ -10,8 +10,8 @@
  * the session's log directory in the system file manager.
  */
 import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionListState, SessionSummary, SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { CompatApi, CompatResult, HistoryEntry, ISessions, IWorkspaces, SessionListState, SessionStoreService, SessionSummary, SlotRegistry, WorkspaceListState } from './compat.ts'
+import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: brings the `settings.section` SlotMap declaration into this program.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: brings the `sidebar.footer.action` SlotMap declaration into this program.
@@ -22,9 +22,9 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: merges the 'title' projection key the wire session summaries read.
 import type {} from '@deepseek-ai/dsh-session-title/client'
-// Type-only: brings the connection/remote merges and IApiClient types.
+// Type-only: brings the connection/remote merges and shared wire types.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import type { ConnectionHandle, HistoryEntry, SessionId as WireSessionId } from '@deepseek-ai/dsh-api-remotes/client'
+import type { SessionId as WireSessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import type { WorkspaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -820,13 +820,13 @@ const STYLE = `
 
 interface SessionManagerProps {
   useSessions: SnapshotSelectorHook<SessionListState>
-  useWorkspaces: SnapshotSelectorHook<import('@deepseek-ai/dsh-client-runtime/client').WorkspaceListState>
+  useWorkspaces: SnapshotSelectorHook<WorkspaceListState>
   /** Wire client for the official session.history RPC (stats folding). */
-  api: Pick<import('@deepseek-ai/dsh-api-remotes/client').IApiClient, 'sessions'>
+  api: Pick<CompatApi, 'sessions'>
   /** Browser sessions service: open a session and close the settings panel. */
-  sessions: import('@deepseek-ai/dsh-client-runtime/client').ISessions
+  sessions: ISessions
   /** Workspaces service: durable workspace reordering (drag & drop). */
-  workspaceActions: import('@deepseek-ai/dsh-client-runtime/client').IWorkspaces
+  workspaceActions: IWorkspaces
   /** Close the settings panel (settings.section owner seat). */
   close: () => void
 }
@@ -2010,8 +2010,6 @@ function currentSessionId(list: SessionListState): string | undefined {
   return list.ids.find((id) => ((list.byId[id]?.retainedBy as { mainView?: number } | undefined)?.mainView ?? 0) > 0)
 }
 
-type CompatResult<T> = { result: { ok: true; value: T } | { ok: false; error: { code: string } } }
-
 const compatOk = <T>(value: T): CompatResult<T> => ({ result: { ok: true, value } })
 const compatFail = (error: unknown): CompatResult<never> => {
   const code = (error as { rpcError?: { code?: string } } | null)?.rpcError?.code
@@ -2077,8 +2075,8 @@ export function apply(ctx: ClientContext): void {
   document.head.append(style)
 
   // The wire client: official session.history RPC for stats folding.
-  const api = ((ctx.get('connection') as { api?: ConnectionHandle['api'] }).api
-    ?? createCompatApi(ctx)) as ConnectionHandle['api']
+  const api = ((ctx.get('connection') as { api?: CompatApi }).api
+    ?? createCompatApi(ctx)) as CompatApi
   // Resolve services at the ROOT context (apply time): the slot `inject:`
   // callbacks are evaluated inside the slot's own cordis scope, where these
   // services are not declared — accessing ctx.<service> there throws
@@ -2091,7 +2089,7 @@ export function apply(ctx: ClientContext): void {
   }
   const sessions = new Proxy(ctx.sessions, {
     get: (target, key, receiver) => (key === 'open' ? openSessionCompat : Reflect.get(target, key, receiver)),
-  })
+  }) as ISessions
   const workspaces = ctx.workspaces
 
   const syncLocale = (): void => {
@@ -2261,8 +2259,8 @@ interface ClientContext {
   slots: SlotRegistry
   get<T>(service: string): T
   effect(effect: () => void | (() => void), label?: string): void
-  sessions: import('@deepseek-ai/dsh-client-runtime/client').ISessions
-  workspaces: import('@deepseek-ai/dsh-client-runtime/client').IWorkspaces
+  sessions: SessionStoreService
+  workspaces: IWorkspaces
   locale: {
     getLocale(): { active: string }
     subscribe(listener: () => void): () => void
@@ -2502,8 +2500,8 @@ function useDrawerState(): DrawerState {
 
 /** Injected share for the header buttons and drawer host. */
 interface DrawerInjected {
-  api: Pick<import('@deepseek-ai/dsh-api-remotes/client').IApiClient, 'sessions' | 'workspace'>
-  sessions: import('@deepseek-ai/dsh-client-runtime/client').ISessions
+  api: CompatApi
+  sessions: ISessions
 }
 
 /** "对话管理" header button: open the drawer on the main list. */
@@ -2559,7 +2557,7 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
   const subscribe = useCallback((fn: () => void): (() => void) => sessions.list.subscribe(fn), [sessions])
   const getSnapshot = useCallback(() => sessions.list.getSnapshot(), [sessions])
   const list = useSyncExternalStore(subscribe, getSnapshot)
-  const [workspaces, setWorkspaces] = useState<WorkspaceView[]>([])
+  const [workspaces, setWorkspaces] = useState<readonly WorkspaceView[]>([])
   const [archivedSet, setArchivedSet] = useState<ReadonlySet<string>>(new Set())
   const [loadError, setLoadError] = useState(false)
   const [trash, setTrash] = useState<TrashEntry[] | null>(null)

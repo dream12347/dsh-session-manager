@@ -51,9 +51,6 @@ importers:
       '@deepseek-ai/dsh-client-locale':
         specifier: link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-locale
         version: link:../../../../../../AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-locale
-      '@deepseek-ai/dsh-client-runtime':
-        specifier: link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-runtime
-        version: link:../../../../../../AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-runtime
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-ui-conversation
         version: link:../../../../../../AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-ui-conversation
@@ -66,6 +63,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-ui-slots
         version: link:../../../../../../AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-ui-slots
+      '@deepseek-ai/dsh-client-ui-workspace':
+        specifier: link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-ui-workspace
+        version: link:../../../../../../AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-client-ui-workspace
       '@deepseek-ai/dsh-home-paths':
         specifier: link:C:/Users/mengxiang/AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-home-paths
         version: link:../../../../../../AppData/Local/npm-cache/_npx/1e7f6d9597241db0/node_modules/@deepseek-ai/dsh-home-paths
