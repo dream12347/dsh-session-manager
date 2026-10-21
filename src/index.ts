@@ -91,10 +91,12 @@ const MAX_BODY_BYTES = 64 * 1024
 // Official session ids come in three shapes: `session-<uuid>` (web UI,
 // created via the api), `session-<n>` (store-minted, e.g. forks created
 // without an explicit id) and `<uuid>` (subagent children, created as
-// `SessionId(randomUUID())`). Accept all three; keep the charset tight
-// (hex + dashes only, plus the literal "session-" prefix) because the id
-// is joined into a trash path.
-const SESSION_ID_RE = /^(session-)?[0-9a-fA-F-]+$/
+// `SessionId(randomUUID())`). Third-party plugins may mint their own
+// namespace-prefixed ids (an IM bridge uses `im:<channel>:<kind>:<ts>:<chatId>`),
+// which carry `:` and `_`. Accept all of them; keep the charset to
+// alphanumerics plus `: . _ -` so the id stays a single safe path segment
+// after `encodeTrashSegment` (path separators are rejected).
+const SESSION_ID_RE = /^[0-9a-zA-Z:._-]+$/
 /** Maximum trash entries kept; the oldest overflow is purged automatically. */
 export const TRASH_LIMIT = 10
 const STATS_EVENT_LIMIT = 5000
@@ -145,8 +147,32 @@ const trashDomainSpec = defineDomain({
 function trashRoot(): string {
   return dshHomePath('dsh-delete-session-trash')
 }
+
+/**
+ * Encode a session id into one filesystem-safe path segment, mirroring the
+ * host's own `dsh-session-persistence-jsonl` `encodeSegment` convention
+ * (`:` → `~003A`, `..` → `~002E~002E`, `~` → `~007E`). Namespace-prefixed ids
+ * from third-party plugins (e.g. `im:qq_...`) contain `:` which is illegal in
+ * a Windows path segment, so the raw id can no longer be used as a directory
+ * name directly. The trash entry records `originalPath`, so this name only
+ * needs to be deterministic and unique per id.
+ */
+export function encodeTrashSegment(id: string): string {
+  if (id.length === 0) throw new Error('cannot encode an empty path segment')
+  if (id === '.') return '~002E'
+  if (id === '..') return '~002E~002E'
+  let out = ''
+  for (let i = 0; i < id.length; i++) {
+    const code = id.charCodeAt(i)
+    const ch = String.fromCharCode(code)
+    if (ch !== '~' && /^[A-Za-z0-9._-]$/.test(ch)) out += ch
+    else out += '~' + code.toString(16).toUpperCase().padStart(4, '0')
+  }
+  return out
+}
+
 function trashSessionDir(sessionId: string): string {
-  return join(trashRoot(), sessionId)
+  return join(trashRoot(), encodeTrashSegment(sessionId))
 }
 
 function readJsonBody(req: IncomingMessage): Promise<unknown> {
