@@ -632,6 +632,13 @@ function setup(ctx: Context): Promise<() => Promise<void>> {
               respond(res, 404, { ok: false, error: 'trash-entry-not-found' })
               return
             }
+            // A running Agent still appends to its log: deleting the directory
+            // under it would let a later write resurrect the session. Refuse
+            // until the turn is paused (the same rule delete applies).
+            if (ctx.agents.get(id)?.status === 'running') {
+              respond(res, 409, { ok: false, error: 'session-live' })
+              return
+            }
 
             // Remove the artifact: from the trash if it was moved there, and from
             // the original location too (a live session's artifact stayed put).

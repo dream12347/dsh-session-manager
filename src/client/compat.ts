@@ -27,6 +27,13 @@ export interface SessionStoreService {
     subscribe(listener: () => void): () => void
   }
   open?(sessionId: SessionId): void
+  /**
+   * Drop one Session row from the official client catalog. The Host forwards
+   * its own removals through this sink; a permanently purged Session never
+   * receives one (a live Agent cannot be disposed from outside its creator),
+   * so the plugin applies the removal itself.
+   */
+  handleSessionRemoved?(sessionId: SessionId): void
 }
 
 /** The proxy adds open() through uiWorkspace when the host no longer has it. */
