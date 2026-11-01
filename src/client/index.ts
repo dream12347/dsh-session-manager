@@ -180,6 +180,35 @@ function saveRemoved(removed: ReadonlySet<string>): void {
   }
 }
 
+/**
+ * Permanently purged sessions must leave every list immediately.
+ *
+ * The Host builds `session.list` from persistence ∪ the live registry, and a
+ * purged session stays live in this process until DSH restarts: the plugin
+ * cannot dispose an Agent it does not own (the `AgentHandle` disposer is a
+ * creator-only capability). So the row keeps being listed, and the official
+ * sidebar keeps rendering it — visibly so under "show archived", because the
+ * delete that moved it to the trash also archived it. Apply the removal to the
+ * official catalog ourselves and remember the id, so a later full refresh
+ * cannot resurrect the row in this browser.
+ */
+function forgetPurgedSession(sessions: ISessions, sessionId: string): void {
+  try {
+    const removed = loadRemoved()
+    if (!removed.has(sessionId)) {
+      removed.add(sessionId)
+      saveRemoved(removed)
+    }
+  } catch {
+    // Storage unavailable: fall through and still drop the row.
+  }
+  try {
+    sessions.handleSessionRemoved?.(sessionId as SessionId)
+  } catch {
+    // A catalog without the sink (older DSH): the refresh below still applies.
+  }
+}
+
 function loadTitles(): Record<string, string> {
   try {
     const raw = window.localStorage.getItem(TITLES_KEY)
@@ -1549,6 +1578,7 @@ function SessionManager({ useSessions, useWorkspaces, api, sessions, workspaceAc
       const data = (await response.json().catch(() => ({}))) as ActionResultResponse
       if (!response.ok || data.ok !== true) throw new Error(data.error ?? `HTTP ${response.status}`)
       markRemoved(sessionId)
+      forgetPurgedSession(sessions, sessionId)
       await loadTrash()
       showNotice({ kind: 'ok', text: strings.purged.replace('{title}', title) })
       // Same as delete: drop the purged session from the retained summaries.
@@ -2119,6 +2149,31 @@ export function apply(ctx: ClientContext): void {
     const unsubscribe = sessions.list.subscribe(check)
     return () => unsubscribe()
   }, 'dsh-session-manager: selection auto-read')
+
+  // Keep permanently purged sessions out of the OFFICIAL catalog. A purged
+  // session stays in the Host's `session.list` while its Agent is still alive
+  // (see `forgetPurgedSession`), so every full list refresh re-adds the row;
+  // reapply the removal after each change until the Host forgets it.
+  ctx.effect(() => {
+    let applying = false
+    const applyPurged = (): void => {
+      if (applying) return
+      const removed = loadRemoved()
+      if (removed.size === 0) return
+      const snapshot = sessions.list.getSnapshot()
+      applying = true
+      try {
+        for (const id of removed) {
+          if (snapshot.ids.includes(id as SessionId)) sessions.handleSessionRemoved?.(id as SessionId)
+        }
+      } finally {
+        applying = false
+      }
+    }
+    applyPurged()
+    const unsubscribe = sessions.list.subscribe(applyPurged)
+    return () => unsubscribe()
+  }, 'dsh-session-manager: purged sessions stay hidden')
 
   // Decorate OFFICIAL sidebar session rows with the blue manual-unread dot.
   // Official rows carry no session id, so rows are matched by their title
@@ -2733,6 +2788,7 @@ function SessionDrawer({ api, sessions }: DrawerInjected): ReactElement {
       showAlert(strings.purgeFailed.replace('{title}', title) + ` (${error})`)
       return
     }
+    forgetPurgedSession(sessions, sessionId)
     await Promise.all([load(), refreshTrash()])
     // Same as delete: drop the purged session from the retained summaries
     // so the official subagent catalog does not keep tracking it.
